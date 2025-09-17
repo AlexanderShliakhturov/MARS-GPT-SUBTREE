@@ -119,11 +119,7 @@
 							>
 								<option disabled selected value="">{$i18n.t('Select a engine')}</option>
 								{#each webSearchEngines as engine}
-									{#if engine === 'duckduckgo' || engine === 'ddgs'}
-										<option value={engine}>DDGS</option>
-									{:else}
-										<option value={engine}>{engine}</option>
-									{/if}
+									<option value={engine}>{engine}</option>
 								{/each}
 							</select>
 						</div>
@@ -145,7 +141,6 @@
 												placeholder={$i18n.t('Enter Searxng Query URL')}
 												bind:value={webConfig.SEARXNG_QUERY_URL}
 												autocomplete="off"
-												required
 											/>
 										</div>
 									</div>
@@ -253,6 +248,7 @@
 										bind:value={webConfig.KAGI_SEARCH_API_KEY}
 									/>
 								</div>
+								.
 							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'mojeek'}
 							<div class="mb-2.5 flex w-full flex-col">
@@ -475,11 +471,11 @@
 									/>
 
 									<datalist id="perplexity-model-list">
-										<option value="sonar">{$i18n.t('Sonar')}</option>
-										<option value="sonar-pro">{$i18n.t('Sonar Pro')}</option>
-										<option value="sonar-reasoning">{$i18n.t('Sonar Reasoning')}</option>
-										<option value="sonar-reasoning-pro">{$i18n.t('Sonar Reasoning Pro')}</option>
-										<option value="sonar-deep-research">{$i18n.t('Sonar Deep Research')}</option>
+										<option value="sonar">Sonar</option>
+										<option value="sonar-pro">Sonar Pro</option>
+										<option value="sonar-reasoning">Sonar Reasoning</option>
+										<option value="sonar-reasoning-pro">Sonar Reasoning Pro</option>
+										<option value="sonar-deep-research">Sonar Deep Research</option>
 									</datalist>
 								</div>
 							</div>
@@ -493,9 +489,9 @@
 										class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
 										bind:value={webConfig.PERPLEXITY_SEARCH_CONTEXT_USAGE}
 									>
-										<option value="low">{$i18n.t('Low')}</option>
-										<option value="medium">{$i18n.t('Medium')}</option>
-										<option value="high">{$i18n.t('High')}</option>
+										<option value="low">Low</option>
+										<option value="medium">Medium</option>
+										<option value="high">High</option>
 									</select>
 								</div>
 							</div>
@@ -555,19 +551,6 @@
 									/>
 								</div>
 							</div>
-						{:else if webConfig.WEB_SEARCH_ENGINE === 'ddgs' || webConfig.WEB_SEARCH_ENGINE === 'duckduckgo'}
-							<div class="w-full mb-2.5">
-								<div class=" self-center text-xs font-medium mb-1">
-									{$i18n.t('Concurrent Requests')}
-								</div>
-
-								<input
-									class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
-									placeholder={$i18n.t('Concurrent Requests')}
-									bind:value={webConfig.WEB_SEARCH_CONCURRENT_REQUESTS}
-									required
-								/>
-							</div>
 						{:else if webConfig.WEB_SEARCH_ENGINE === 'external'}
 							<div class="mb-2.5 flex w-full flex-col">
 								<div>
@@ -614,6 +597,19 @@
 										class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
 										placeholder={$i18n.t('Search Result Count')}
 										bind:value={webConfig.WEB_SEARCH_RESULT_COUNT}
+										required
+									/>
+								</div>
+
+								<div class="w-full">
+									<div class=" self-center text-xs font-medium mb-1">
+										{$i18n.t('Concurrent Requests')}
+									</div>
+
+									<input
+										class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
+										placeholder={$i18n.t('Concurrent Requests')}
+										bind:value={webConfig.WEB_SEARCH_CONCURRENT_REQUESTS}
 										required
 									/>
 								</div>
@@ -852,19 +848,6 @@
 							</div>
 						</div>
 					{/if}
-
-					<div class="mb-2.5 w-full">
-						<div class=" self-center text-xs font-medium mb-1">
-							{$i18n.t('Concurrent Requests')}
-						</div>
-
-						<input
-							class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
-							placeholder={$i18n.t('Concurrent Requests')}
-							bind:value={webConfig.WEB_LOADER_CONCURRENT_REQUESTS}
-							required
-						/>
-					</div>
 
 					<div class="  mb-2.5 flex w-full justify-between">
 						<div class=" self-center text-xs font-medium">

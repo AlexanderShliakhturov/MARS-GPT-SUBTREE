@@ -16,7 +16,6 @@
 	export let name = '';
 	export let collapsible = true;
 
-	export let chevron = true;
 	export let onAddLabel: string = '';
 	export let onAdd: null | Function = null;
 
@@ -70,22 +69,12 @@
 						}
 					} else {
 						open = true;
-						try {
-							const dataTransfer = e.dataTransfer.getData('text/plain');
-							if (dataTransfer) {
-								const data = JSON.parse(dataTransfer);
-								console.log(data);
-								dispatch('drop', data);
-							} else {
-								console.log('Dropped text data is empty or not text/plain.');
-							}
-						} catch (error) {
-							console.log(
-								'Dropped data is not valid JSON text or is empty. Ignoring drop event for this type of data.'
-							);
-						} finally {
-							draggedOver = false;
-						}
+
+						const dataTransfer = e.dataTransfer.getData('text/plain');
+						const data = JSON.parse(dataTransfer);
+
+						console.log(data);
+						dispatch('drop', data);
 					}
 				}
 			}
@@ -114,7 +103,7 @@
 		if (!dragAndDrop) {
 			return;
 		}
-		folderElement.removeEventListener('dragover', onDragOver);
+		folderElement.addEventListener('dragover', onDragOver);
 		folderElement.removeEventListener('drop', onDrop);
 		folderElement.removeEventListener('dragleave', onDragLeave);
 	});
@@ -138,18 +127,16 @@
 		>
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
-				class="w-full group rounded-lg relative flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-900 text-gray-500 dark:text-gray-500 transition"
+				class="w-full group rounded-md relative flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-900 text-gray-500 dark:text-gray-500 transition"
 			>
 				<button class="w-full py-1.5 pl-2 flex items-center gap-1.5 text-xs font-medium">
-					{#if chevron}
-						<div class="text-gray-300 dark:text-gray-600 p-[1px]">
-							{#if open}
-								<ChevronDown className=" size-3.5" strokeWidth="2.5" />
-							{:else}
-								<ChevronRight className=" size-3.5" strokeWidth="2.5" />
-							{/if}
-						</div>
-					{/if}
+					<div class="text-gray-300 dark:text-gray-600">
+						{#if open}
+							<ChevronDown className=" size-3" strokeWidth="2.5" />
+						{:else}
+							<ChevronRight className=" size-3" strokeWidth="2.5" />
+						{/if}
+					</div>
 
 					<div class="translate-y-[0.5px]">
 						{name}

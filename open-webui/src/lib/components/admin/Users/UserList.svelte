@@ -142,7 +142,8 @@
 				type: 'error',
 				title: 'License Error',
 				content:
-					'Exceeded the number of seats in your license. Please contact support to increase the number of seats.'
+					'Exceeded the number of seats in your license. Please contact support to increase the number of seats.',
+				dismissable: true
 			}}
 		/>
 	</div>
@@ -150,12 +151,10 @@
 
 {#if users === null || total === null}
 	<div class="my-10">
-		<Spinner className="size-5" />
+		<Spinner />
 	</div>
 {:else}
-	<div
-		class="pt-0.5 pb-2 gap-1 flex flex-col md:flex-row justify-between sticky top-0 z-10 bg-white dark:bg-gray-900"
-	>
+	<div class="mt-0.5 mb-2 gap-1 flex flex-col md:flex-row justify-between">
 		<div class="flex md:self-center text-lg font-medium px-0.5">
 			<div class="flex-shrink-0">
 				{$i18n.t('Users')}
@@ -166,12 +165,12 @@
 				{#if total > $config?.license_metadata?.seats}
 					<span class="text-lg font-medium text-red-500"
 						>{total} of {$config?.license_metadata?.seats}
-						<span class="text-sm font-normal">{$i18n.t('available users')}</span></span
+						<span class="text-sm font-normal">available users</span></span
 					>
 				{:else}
 					<span class="text-lg font-medium text-gray-500 dark:text-gray-300"
 						>{total} of {$config?.license_metadata?.seats}
-						<span class="text-sm font-normal">{$i18n.t('available users')}</span></span
+						<span class="text-sm font-normal">available users</span></span
 					>
 				{/if}
 			{:else}
@@ -393,11 +392,11 @@
 							<div class="flex flex-row w-max">
 								<img
 									class=" rounded-full w-6 h-6 object-cover mr-2.5"
-									src={user?.profile_image_url?.startsWith(WEBUI_BASE_URL) ||
+									src={user.profile_image_url.startsWith(WEBUI_BASE_URL) ||
 									user.profile_image_url.startsWith('https://www.gravatar.com/avatar/') ||
 									user.profile_image_url.startsWith('data:')
 										? user.profile_image_url
-										: `${WEBUI_BASE_URL}/user.png`}
+										: `/user.png`}
 									alt="user"
 								/>
 
@@ -495,9 +494,7 @@
 		ⓘ {$i18n.t("Click on the user role button to change a user's role.")}
 	</div>
 
-	{#if total > 30}
-		<Pagination bind:page count={total} perPage={30} />
-	{/if}
+	<Pagination bind:page count={total} perPage={30} />
 {/if}
 
 {#if !$config?.license_metadata}

@@ -22,24 +22,14 @@
 		tools,
 		user as _user,
 		showControls,
-		TTSWorker,
-		temporaryChatEnabled
+		TTSWorker
 	} from '$lib/stores';
 
 	import {
-		convertHeicToJpeg,
+		blobToFile,
 		compressImage,
 		createMessagesList,
-		extractContentFromFile,
-		extractCurlyBraceWords,
-		extractInputVariables,
-		getAge,
-		getCurrentDateTime,
-		getFormattedDate,
-		getFormattedTime,
-		getUserPosition,
-		getUserTimezone,
-		getWeekday
+		extractCurlyBraceWords
 	} from '$lib/utils';
 	import { uploadFile } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
@@ -67,17 +57,16 @@
 	import Sparkles from '../icons/Sparkles.svelte';
 
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
-	import InputVariablesModal from './MessageInput/InputVariablesModal.svelte';
-	import Voice from '../icons/Voice.svelte';
-	import { getSessionUser } from '$lib/apis/auths';
+
 	const i18n = getContext('i18n');
+
+	export let transparentBackground = false;
 
 	export let onChange: Function = () => {};
 	export let createMessagePair: Function;
 	export let stopResponse: Function;
 
 	export let autoScroll = false;
-	export let generating = false;
 
 	export let atSelectedModel: Model | undefined = undefined;
 	export let selectedModels: [''];
@@ -100,11 +89,6 @@
 	export let webSearchEnabled = false;
 	export let codeInterpreterEnabled = false;
 
-	let showInputVariablesModal = false;
-	let inputVariablesModalCallback = (variableValues) => {};
-	let inputVariables = {};
-	let inputVariableValues = {};
-
 	$: onChange({
 		prompt,
 		files: files
@@ -123,339 +107,12 @@
 		codeInterpreterEnabled
 	});
 
-	const inputVariableHandler = async (text: string): Promise<string> => {
-		inputVariables = extractInputVariables(text);
-
-		// No variables? return the original text immediately.
-		if (Object.keys(inputVariables).length === 0) {
-			return text;
-		}
-
-		// Show modal and wait for the user's input.
-		showInputVariablesModal = true;
-		return await new Promise<string>((resolve) => {
-			inputVariablesModalCallback = (variableValues) => {
-				inputVariableValues = { ...inputVariableValues, ...variableValues };
-				replaceVariables(inputVariableValues);
-				showInputVariablesModal = false;
-				resolve(text);
-			};
-		});
-	};
-
-	const textVariableHandler = async (text: string) => {
-		if (text.includes('{{CLIPBOARD}}')) {
-			const clipboardText = await navigator.clipboard.readText().catch((err) => {
-				toast.error($i18n.t('Failed to read clipboard contents'));
-				return '{{CLIPBOARD}}';
-			});
-
-			const clipboardItems = await navigator.clipboard.read();
-
-			let imageUrl = null;
-			for (const item of clipboardItems) {
-				// Check for known image types
-				for (const type of item.types) {
-					if (type.startsWith('image/')) {
-						const blob = await item.getType(type);
-						imageUrl = URL.createObjectURL(blob);
-					}
-				}
-			}
-
-			if (imageUrl) {
-				files = [
-					...files,
-					{
-						type: 'image',
-						url: imageUrl
-					}
-				];
-			}
-
-			text = text.replaceAll('{{CLIPBOARD}}', clipboardText);
-		}
-
-		if (text.includes('{{USER_LOCATION}}')) {
-			let location;
-			try {
-				location = await getUserPosition();
-			} catch (error) {
-				toast.error($i18n.t('Location access not allowed'));
-				location = 'LOCATION_UNKNOWN';
-			}
-			text = text.replaceAll('{{USER_LOCATION}}', String(location));
-		}
-
-		const sessionUser = await getSessionUser(localStorage.token);
-
-		if (text.includes('{{USER_NAME}}')) {
-			const name = sessionUser?.name || 'User';
-			text = text.replaceAll('{{USER_NAME}}', name);
-		}
-
-		if (text.includes('{{USER_BIO}}')) {
-			const bio = sessionUser?.bio || '';
-
-			if (bio) {
-				text = text.replaceAll('{{USER_BIO}}', bio);
-			}
-		}
-
-		if (text.includes('{{USER_GENDER}}')) {
-			const gender = sessionUser?.gender || '';
-
-			if (gender) {
-				text = text.replaceAll('{{USER_GENDER}}', gender);
-			}
-		}
-
-		if (text.includes('{{USER_BIRTH_DATE}}')) {
-			const birthDate = sessionUser?.date_of_birth || '';
-
-			if (birthDate) {
-				text = text.replaceAll('{{USER_BIRTH_DATE}}', birthDate);
-			}
-		}
-
-		if (text.includes('{{USER_AGE}}')) {
-			const birthDate = sessionUser?.date_of_birth || '';
-
-			if (birthDate) {
-				// calculate age using date
-				const age = getAge(birthDate);
-				text = text.replaceAll('{{USER_AGE}}', age);
-			}
-		}
-
-		if (text.includes('{{USER_LANGUAGE}}')) {
-			const language = localStorage.getItem('locale') || 'en-US';
-			text = text.replaceAll('{{USER_LANGUAGE}}', language);
-		}
-
-		if (text.includes('{{CURRENT_DATE}}')) {
-			const date = getFormattedDate();
-			text = text.replaceAll('{{CURRENT_DATE}}', date);
-		}
-
-		if (text.includes('{{CURRENT_TIME}}')) {
-			const time = getFormattedTime();
-			text = text.replaceAll('{{CURRENT_TIME}}', time);
-		}
-
-		if (text.includes('{{CURRENT_DATETIME}}')) {
-			const dateTime = getCurrentDateTime();
-			text = text.replaceAll('{{CURRENT_DATETIME}}', dateTime);
-		}
-
-		if (text.includes('{{CURRENT_TIMEZONE}}')) {
-			const timezone = getUserTimezone();
-			text = text.replaceAll('{{CURRENT_TIMEZONE}}', timezone);
-		}
-
-		if (text.includes('{{CURRENT_WEEKDAY}}')) {
-			const weekday = getWeekday();
-			text = text.replaceAll('{{CURRENT_WEEKDAY}}', weekday);
-		}
-
-		return text;
-	};
-
-	const replaceVariables = (variables: Record<string, any>) => {
-		console.log('Replacing variables:', variables);
-
-		const chatInput = document.getElementById('chat-input');
-
-		if (chatInput) {
-			if ($settings?.richTextInput ?? true) {
-				chatInputElement.replaceVariables(variables);
-				chatInputElement.focus();
-			} else {
-				// Get current value from the input element
-				let currentValue = chatInput.value || '';
-
-				// Replace template variables using regex
-				const updatedValue = currentValue.replace(
-					/{{\s*([^|}]+)(?:\|[^}]*)?\s*}}/g,
-					(match, varName) => {
-						const trimmedVarName = varName.trim();
-						return variables.hasOwnProperty(trimmedVarName)
-							? String(variables[trimmedVarName])
-							: match;
-					}
-				);
-
-				// Update the input value
-				chatInput.value = updatedValue;
-				chatInput.focus();
-				chatInput.dispatchEvent(new Event('input', { bubbles: true }));
-			}
-		}
-	};
-
-	export const setText = async (text?: string, cb?: (text: string) => void) => {
-		const chatInput = document.getElementById('chat-input');
-
-		if (chatInput) {
-			text = await textVariableHandler(text || '');
-
-			if ($settings?.richTextInput ?? true) {
-				chatInputElement?.setText(text);
-				chatInputElement?.focus();
-			} else {
-				chatInput.value = text;
-				prompt = text;
-
-				chatInput.focus();
-				chatInput.dispatchEvent(new Event('input'));
-			}
-
-			text = await inputVariableHandler(text);
-			await tick();
-			if (cb) await cb(text);
-		}
-	};
-
-	const getCommand = () => {
-		const getWordAtCursor = (text, cursor) => {
-			if (typeof text !== 'string' || cursor == null) return '';
-			const left = text.slice(0, cursor);
-			const right = text.slice(cursor);
-			const leftWord = left.match(/(?:^|\s)([^\s]*)$/)?.[1] || '';
-
-			const rightWord = right.match(/^([^\s]*)/)?.[1] || '';
-			return leftWord + rightWord;
-		};
-
-		const chatInput = document.getElementById('chat-input');
-		let word = '';
-
-		if (chatInput) {
-			if ($settings?.richTextInput ?? true) {
-				word = chatInputElement?.getWordAtDocPos();
-			} else {
-				const cursor = chatInput ? chatInput.selectionStart : prompt.length;
-				word = getWordAtCursor(prompt, cursor);
-			}
-		}
-
-		return word;
-	};
-
-	const replaceCommandWithText = (text) => {
-		const getWordBoundsAtCursor = (text, cursor) => {
-			let start = cursor,
-				end = cursor;
-			while (start > 0 && !/\s/.test(text[start - 1])) --start;
-			while (end < text.length && !/\s/.test(text[end])) ++end;
-			return { start, end };
-		};
-
-		const chatInput = document.getElementById('chat-input');
-		if (!chatInput) return;
-
-		if ($settings?.richTextInput ?? true) {
-			chatInputElement?.replaceCommandWithText(text);
-		} else {
-			const cursor = chatInput.selectionStart;
-			const { start, end } = getWordBoundsAtCursor(prompt, cursor);
-			prompt = prompt.slice(0, start) + text + prompt.slice(end);
-			chatInput.focus();
-			chatInput.setSelectionRange(start + text.length, start + text.length);
-		}
-	};
-
-	const insertTextAtCursor = async (text: string) => {
-		const chatInput = document.getElementById('chat-input');
-		if (!chatInput) return;
-
-		text = await textVariableHandler(text);
-
-		if (command) {
-			replaceCommandWithText(text);
-		} else {
-			if ($settings?.richTextInput ?? true) {
-				chatInputElement?.insertContent(text);
-			} else {
-				const cursor = chatInput.selectionStart;
-				prompt = prompt.slice(0, cursor) + text + prompt.slice(cursor);
-				chatInput.focus();
-				chatInput.setSelectionRange(cursor + text.length, cursor + text.length);
-			}
-		}
-
-		await tick();
-		text = await inputVariableHandler(text);
-		await tick();
-
-		const chatInputContainer = document.getElementById('chat-input-container');
-		if (chatInputContainer) {
-			chatInputContainer.scrollTop = chatInputContainer.scrollHeight;
-		}
-
-		await tick();
-		if (chatInput) {
-			chatInput.focus();
-			chatInput.dispatchEvent(new Event('input'));
-
-			const words = extractCurlyBraceWords(prompt);
-
-			if (words.length > 0) {
-				const word = words.at(0);
-				await tick();
-
-				if (!($settings?.richTextInput ?? true)) {
-					// Move scroll to the first word
-					chatInput.setSelectionRange(word.startIndex, word.endIndex + 1);
-					chatInput.focus();
-
-					const selectionRow =
-						(word?.startIndex - (word?.startIndex % chatInput.cols)) / chatInput.cols;
-					const lineHeight = chatInput.clientHeight / chatInput.rows;
-
-					chatInput.scrollTop = lineHeight * selectionRow;
-				}
-			} else {
-				chatInput.scrollTop = chatInput.scrollHeight;
-			}
-		}
-	};
-
-	let command = '';
-
-	export let showCommands = false;
-	$: showCommands = ['/', '#', '@'].includes(command?.charAt(0)) || '\\#' === command?.slice(0, 2);
-
 	let showTools = false;
 
 	let loaded = false;
 	let recording = false;
 
 	let isComposing = false;
-	// Safari has a bug where compositionend is not triggered correctly #16615
-	// when using the virtual keyboard on iOS.
-	let compositionEndedAt = -2e8;
-	const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-	function inOrNearComposition(event: Event) {
-		if (isComposing) {
-			return true;
-		}
-		// See https://www.stum.de/2016/06/24/handling-ime-events-in-javascript/.
-		// On Japanese input method editors (IMEs), the Enter key is used to confirm character
-		// selection. On Safari, when Enter is pressed, compositionend and keydown events are
-		// emitted. The keydown event triggers newline insertion, which we don't want.
-		// This method returns true if the keydown event should be ignored.
-		// We only ignore it once, as pressing Enter a second time *should* insert a newline.
-		// Furthermore, the keydown event timestamp must be close to the compositionEndedAt timestamp.
-		// This guards against the case where compositionend is triggered without the keyboard
-		// (e.g. character confirmation may be done with the mouse), and keydown is triggered
-		// afterwards- we wouldn't want to ignore the keydown event in this case.
-		if (isSafari && Math.abs(event.timeStamp - compositionEndedAt) < 500) {
-			compositionEndedAt = -2e8;
-			return true;
-		}
-		return false;
-	}
 
 	let chatInputContainerElement;
 	let chatInputElement;
@@ -582,11 +239,6 @@
 			return null;
 		}
 
-		if (fileUploadCapableModels.length !== selectedModels.length) {
-			toast.error($i18n.t('Model(s) do not support file upload'));
-			return null;
-		}
-
 		const tempItemId = uuidv4();
 		const fileItem = {
 			type: 'file',
@@ -609,77 +261,47 @@
 
 		files = [...files, fileItem];
 
-		if (!$temporaryChatEnabled) {
-			try {
-				// If the file is an audio file, provide the language for STT.
-				let metadata = null;
-				if (
-					(file.type.startsWith('audio/') || file.type.startsWith('video/')) &&
-					$settings?.audio?.stt?.language
-				) {
-					metadata = {
-						language: $settings?.audio?.stt?.language
-					};
-				}
-
-				// During the file upload, file content is automatically extracted.
-				const uploadedFile = await uploadFile(localStorage.token, file, metadata);
-
-				if (uploadedFile) {
-					console.log('File upload completed:', {
-						id: uploadedFile.id,
-						name: fileItem.name,
-						collection: uploadedFile?.meta?.collection_name
-					});
-
-					if (uploadedFile.error) {
-						console.warn('File upload warning:', uploadedFile.error);
-						toast.warning(uploadedFile.error);
-					}
-
-					fileItem.status = 'uploaded';
-					fileItem.file = uploadedFile;
-					fileItem.id = uploadedFile.id;
-					fileItem.collection_name =
-						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
-					fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
-
-					files = files;
-				} else {
-					files = files.filter((item) => item?.itemId !== tempItemId);
-				}
-			} catch (e) {
-				toast.error(`${e}`);
-				files = files.filter((item) => item?.itemId !== tempItemId);
+		try {
+			// If the file is an audio file, provide the language for STT.
+			let metadata = null;
+			if (
+				(file.type.startsWith('audio/') || file.type.startsWith('video/')) &&
+				$settings?.audio?.stt?.language
+			) {
+				metadata = {
+					language: $settings?.audio?.stt?.language
+				};
 			}
-		} else {
-			// If temporary chat is enabled, we just add the file to the list without uploading it.
 
-			const content = await extractContentFromFile(file).catch((error) => {
-				toast.error(
-					$i18n.t('Failed to extract content from the file: {{error}}', { error: error })
-				);
-				return null;
-			});
+			// During the file upload, file content is automatically extracted.
+			const uploadedFile = await uploadFile(localStorage.token, file, metadata);
 
-			if (content === null) {
-				toast.error($i18n.t('Failed to extract content from the file.'));
-				files = files.filter((item) => item?.itemId !== tempItemId);
-				return null;
-			} else {
-				console.log('Extracted content from file:', {
-					name: file.name,
-					size: file.size,
-					content: content
+			if (uploadedFile) {
+				console.log('File upload completed:', {
+					id: uploadedFile.id,
+					name: fileItem.name,
+					collection: uploadedFile?.meta?.collection_name
 				});
 
+				if (uploadedFile.error) {
+					console.warn('File upload warning:', uploadedFile.error);
+					toast.warning(uploadedFile.error);
+				}
+
 				fileItem.status = 'uploaded';
-				fileItem.type = 'text';
-				fileItem.content = content;
-				fileItem.id = uuidv4(); // Temporary ID for the file
+				fileItem.file = uploadedFile;
+				fileItem.id = uploadedFile.id;
+				fileItem.collection_name =
+					uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
+				fileItem.url = `${WEBUI_API_BASE_URL}/files/${uploadedFile.id}`;
 
 				files = files;
+			} else {
+				files = files.filter((item) => item?.itemId !== tempItemId);
 			}
+		} catch (e) {
+			toast.error(`${e}`);
+			files = files.filter((item) => item?.itemId !== tempItemId);
 		}
 	};
 
@@ -698,7 +320,7 @@
 			return;
 		}
 
-		inputFiles.forEach(async (file) => {
+		inputFiles.forEach((file) => {
 			console.log('Processing file:', {
 				name: file.name,
 				type: file.type,
@@ -722,53 +344,46 @@
 				return;
 			}
 
-			if (file['type'].startsWith('image/')) {
+			if (
+				['image/gif', 'image/webp', 'image/jpeg', 'image/png', 'image/avif'].includes(file['type'])
+			) {
 				if (visionCapableModels.length === 0) {
 					toast.error($i18n.t('Selected model(s) do not support image inputs'));
 					return;
 				}
-
-				const compressImageHandler = async (imageUrl, settings = {}, config = {}) => {
-					// Quick shortcut so we don’t do unnecessary work.
-					const settingsCompression = settings?.imageCompression ?? false;
-					const configWidth = config?.file?.image_compression?.width ?? null;
-					const configHeight = config?.file?.image_compression?.height ?? null;
-
-					// If neither settings nor config wants compression, return original URL.
-					if (!settingsCompression && !configWidth && !configHeight) {
-						return imageUrl;
-					}
-
-					// Default to null (no compression unless set)
-					let width = null;
-					let height = null;
-
-					// If user/settings want compression, pick their preferred size.
-					if (settingsCompression) {
-						width = settings?.imageCompressionSize?.width ?? null;
-						height = settings?.imageCompressionSize?.height ?? null;
-					}
-
-					// Apply config limits as an upper bound if any
-					if (configWidth && (width === null || width > configWidth)) {
-						width = configWidth;
-					}
-					if (configHeight && (height === null || height > configHeight)) {
-						height = configHeight;
-					}
-
-					// Do the compression if required
-					if (width || height) {
-						return await compressImage(imageUrl, width, height);
-					}
-					return imageUrl;
-				};
-
 				let reader = new FileReader();
 				reader.onload = async (event) => {
 					let imageUrl = event.target.result;
 
-					imageUrl = await compressImageHandler(imageUrl, $settings, $config);
+					if (
+						($settings?.imageCompression ?? false) ||
+						($config?.file?.image_compression?.width ?? null) ||
+						($config?.file?.image_compression?.height ?? null)
+					) {
+						let width = null;
+						let height = null;
+
+						if ($settings?.imageCompression ?? false) {
+							width = $settings?.imageCompressionSize?.width ?? null;
+							height = $settings?.imageCompressionSize?.height ?? null;
+						}
+
+						if (
+							($config?.file?.image_compression?.width ?? null) ||
+							($config?.file?.image_compression?.height ?? null)
+						) {
+							if (width > ($config?.file?.image_compression?.width ?? null)) {
+								width = $config?.file?.image_compression?.width ?? null;
+							}
+							if (height > ($config?.file?.image_compression?.height ?? null)) {
+								height = $config?.file?.image_compression?.height ?? null;
+							}
+						}
+
+						if (width || height) {
+							imageUrl = await compressImage(imageUrl, width, height);
+						}
+					}
 
 					files = [
 						...files,
@@ -778,7 +393,7 @@
 						}
 					];
 				};
-				reader.readAsDataURL(file['type'] === 'image/heic' ? await convertHeicToJpeg(file) : file);
+				reader.readAsDataURL(file);
 			} else {
 				uploadFileHandler(file);
 			}
@@ -881,11 +496,6 @@
 
 <FilesOverlay show={dragged} />
 <ToolServersModal bind:show={showTools} {selectedToolIds} />
-<InputVariablesModal
-	bind:show={showInputVariablesModal}
-	variables={inputVariables}
-	onSave={inputVariablesModalCallback}
-/>
 
 {#if loaded}
 	<div class="w-full font-primary">
@@ -938,12 +548,11 @@
 										src={$models.find((model) => model.id === atSelectedModel.id)?.info?.meta
 											?.profile_image_url ??
 											($i18n.language === 'dg-DG'
-												? `${WEBUI_BASE_URL}/doge.png`
+												? `/doge.png`
 												: `${WEBUI_BASE_URL}/static/favicon.png`)}
 									/>
 									<div class="translate-y-[0.5px]">
-										{$i18n.t('Talk to model')}:
-										<span class=" font-medium">{atSelectedModel.name}</span>
+										Talking to <span class=" font-medium">{atSelectedModel.name}</span>
 									</div>
 								</div>
 								<div>
@@ -962,43 +571,27 @@
 
 					<Commands
 						bind:this={commandsElement}
+						bind:prompt
 						bind:files
-						show={showCommands}
-						{command}
-						insertTextHandler={insertTextAtCursor}
-						onUpload={(e) => {
-							const { type, data } = e;
-
-							if (type === 'file') {
-								if (files.find((f) => f.id === data.id)) {
-									return;
-								}
-								files = [
-									...files,
-									{
-										...data,
-										status: 'processed'
-									}
-								];
-							} else {
-								dispatch('upload', e);
-							}
+						on:upload={(e) => {
+							dispatch('upload', e.detail);
 						}}
-						onSelect={(e) => {
-							const { type, data } = e;
+						on:select={(e) => {
+							const data = e.detail;
 
-							if (type === 'model') {
-								atSelectedModel = data;
+							if (data?.type === 'model') {
+								atSelectedModel = data.data;
 							}
 
-							document.getElementById('chat-input')?.focus();
+							const chatInputElement = document.getElementById('chat-input');
+							chatInputElement?.focus();
 						}}
 					/>
 				</div>
 			</div>
 		</div>
 
-		<div class="bg-transparent">
+		<div class="{transparentBackground ? 'bg-transparent' : 'bg-white dark:bg-gray-900'} ">
 			<div
 				class="{($settings?.widescreenMode ?? null)
 					? 'max-w-full'
@@ -1034,11 +627,9 @@
 							}}
 							onConfirm={async (data) => {
 								const { text, filename } = data;
+								prompt = `${prompt}${text} `;
 
 								recording = false;
-
-								await tick();
-								insertTextAtCursor(text);
 
 								await tick();
 								document.getElementById('chat-input')?.focus();
@@ -1068,7 +659,7 @@
 													<div class="relative flex items-center">
 														<Image
 															src={file.url}
-															alt=""
+															alt="input"
 															imageClassName=" size-14 rounded-xl object-cover"
 														/>
 														{#if atSelectedModel ? visionCapableModels.length === 0 : selectedModels.length !== visionCapableModels.length}
@@ -1086,7 +677,6 @@
 																	xmlns="http://www.w3.org/2000/svg"
 																	viewBox="0 0 24 24"
 																	fill="currentColor"
-																	aria-hidden="true"
 																	class="size-4 fill-yellow-300"
 																>
 																	<path
@@ -1100,12 +690,8 @@
 													</div>
 													<div class=" absolute -top-1 -right-1">
 														<button
-															class=" bg-white text-black border border-white rounded-full {($settings?.highContrastMode ??
-															false)
-																? ''
-																: 'outline-hidden focus:outline-hidden group-hover:visible invisible transition'}"
+															class=" bg-white text-black border border-white rounded-full group-hover:visible invisible transition"
 															type="button"
-															aria-label={$i18n.t('Remove file')}
 															on:click={() => {
 																files.splice(fileIdx, 1);
 																files = files;
@@ -1115,7 +701,6 @@
 																xmlns="http://www.w3.org/2000/svg"
 																viewBox="0 0 20 20"
 																fill="currentColor"
-																aria-hidden="true"
 																class="size-4"
 															>
 																<path
@@ -1134,8 +719,18 @@
 													loading={file.status === 'uploading'}
 													dismissible={true}
 													edit={true}
-													modal={['file', 'collection'].includes(file?.type)}
 													on:dismiss={async () => {
+														try {
+															if (file.type !== 'collection' && !file?.collection) {
+																if (file.id) {
+																	// This will handle both file deletion and Chroma cleanup
+																	await deleteFileById(localStorage.token, file.id);
+																}
+															}
+														} catch (error) {
+															console.error('Error deleting file:', error);
+														}
+
 														// Remove from UI state
 														files.splice(fileIdx, 1);
 														files = files;
@@ -1155,270 +750,230 @@
 											class="scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pt-2.5 pb-[5px] px-1 resize-none h-fit max-h-80 overflow-auto"
 											id="chat-input-container"
 										>
-											{#key $settings?.showFormattingToolbar ?? false}
-												<RichTextInput
-													bind:this={chatInputElement}
-													id="chat-input"
-													onChange={(e) => {
-														prompt = e.md;
-														command = getCommand();
-													}}
-													json={true}
-													messageInput={true}
-													showFormattingToolbar={$settings?.showFormattingToolbar ?? false}
-													floatingMenuPlacement={'top-start'}
-													insertPromptAsRichText={$settings?.insertPromptAsRichText ?? false}
-													shiftEnter={!($settings?.ctrlEnterToSend ?? false) &&
-														(!$mobile ||
+											<RichTextInput
+												bind:this={chatInputElement}
+												bind:value={prompt}
+												id="chat-input"
+												messageInput={true}
+												shiftEnter={!($settings?.ctrlEnterToSend ?? false) &&
+													(!$mobile ||
+														!(
+															'ontouchstart' in window ||
+															navigator.maxTouchPoints > 0 ||
+															navigator.msMaxTouchPoints > 0
+														))}
+												placeholder={placeholder ? placeholder : $i18n.t('Send a Message')}
+												largeTextAsFile={($settings?.largeTextAsFile ?? false) && !shiftKey}
+												autocomplete={$config?.features?.enable_autocomplete_generation &&
+													($settings?.promptAutocomplete ?? false)}
+												generateAutoCompletion={async (text) => {
+													if (selectedModelIds.length === 0 || !selectedModelIds.at(0)) {
+														toast.error($i18n.t('Please select a model first.'));
+													}
+
+													const res = await generateAutoCompletion(
+														localStorage.token,
+														selectedModelIds.at(0),
+														text,
+														history?.currentId
+															? createMessagesList(history, history.currentId)
+															: null
+													).catch((error) => {
+														console.log(error);
+
+														return null;
+													});
+
+													console.log(res);
+													return res;
+												}}
+												oncompositionstart={() => (isComposing = true)}
+												oncompositionend={() => (isComposing = false)}
+												on:keydown={async (e) => {
+													e = e.detail.event;
+
+													const isCtrlPressed = e.ctrlKey || e.metaKey; // metaKey is for Cmd key on Mac
+													const commandsContainerElement =
+														document.getElementById('commands-container');
+
+													if (e.key === 'Escape') {
+														stopResponse();
+													}
+
+													// Command/Ctrl + Shift + Enter to submit a message pair
+													if (isCtrlPressed && e.key === 'Enter' && e.shiftKey) {
+														e.preventDefault();
+														createMessagePair(prompt);
+													}
+
+													// Check if Ctrl + R is pressed
+													if (prompt === '' && isCtrlPressed && e.key.toLowerCase() === 'r') {
+														e.preventDefault();
+														console.log('regenerate');
+
+														const regenerateButton = [
+															...document.getElementsByClassName('regenerate-response-button')
+														]?.at(-1);
+
+														regenerateButton?.click();
+													}
+
+													if (prompt === '' && e.key == 'ArrowUp') {
+														e.preventDefault();
+
+														const userMessageElement = [
+															...document.getElementsByClassName('user-message')
+														]?.at(-1);
+
+														if (userMessageElement) {
+															userMessageElement.scrollIntoView({ block: 'center' });
+															const editButton = [
+																...document.getElementsByClassName('edit-user-message-button')
+															]?.at(-1);
+
+															editButton?.click();
+														}
+													}
+
+													if (commandsContainerElement) {
+														if (commandsContainerElement && e.key === 'ArrowUp') {
+															e.preventDefault();
+															commandsElement.selectUp();
+
+															const commandOptionButton = [
+																...document.getElementsByClassName('selected-command-option-button')
+															]?.at(-1);
+															commandOptionButton.scrollIntoView({ block: 'center' });
+														}
+
+														if (commandsContainerElement && e.key === 'ArrowDown') {
+															e.preventDefault();
+															commandsElement.selectDown();
+
+															const commandOptionButton = [
+																...document.getElementsByClassName('selected-command-option-button')
+															]?.at(-1);
+															commandOptionButton.scrollIntoView({ block: 'center' });
+														}
+
+														if (commandsContainerElement && e.key === 'Tab') {
+															e.preventDefault();
+
+															const commandOptionButton = [
+																...document.getElementsByClassName('selected-command-option-button')
+															]?.at(-1);
+
+															commandOptionButton?.click();
+														}
+
+														if (commandsContainerElement && e.key === 'Enter') {
+															e.preventDefault();
+
+															const commandOptionButton = [
+																...document.getElementsByClassName('selected-command-option-button')
+															]?.at(-1);
+
+															if (commandOptionButton) {
+																commandOptionButton?.click();
+															} else {
+																document.getElementById('send-message-button')?.click();
+															}
+														}
+													} else {
+														if (
+															!$mobile ||
 															!(
 																'ontouchstart' in window ||
 																navigator.maxTouchPoints > 0 ||
 																navigator.msMaxTouchPoints > 0
-															))}
-													placeholder={placeholder ? placeholder : $i18n.t('Send a Message')}
-													largeTextAsFile={($settings?.largeTextAsFile ?? false) && !shiftKey}
-													autocomplete={$config?.features?.enable_autocomplete_generation &&
-														($settings?.promptAutocomplete ?? false)}
-													generateAutoCompletion={async (text) => {
-														if (selectedModelIds.length === 0 || !selectedModelIds.at(0)) {
-															toast.error($i18n.t('Please select a model first.'));
-														}
-
-														const res = await generateAutoCompletion(
-															localStorage.token,
-															selectedModelIds.at(0),
-															text,
-															history?.currentId
-																? createMessagesList(history, history.currentId)
-																: null
-														).catch((error) => {
-															console.log(error);
-
-															return null;
-														});
-
-														console.log(res);
-														return res;
-													}}
-													oncompositionstart={() => (isComposing = true)}
-													oncompositionend={(e) => {
-														compositionEndedAt = e.timeStamp;
-														isComposing = false;
-													}}
-													on:keydown={async (e) => {
-														e = e.detail.event;
-
-														const isCtrlPressed = e.ctrlKey || e.metaKey; // metaKey is for Cmd key on Mac
-														const commandsContainerElement =
-															document.getElementById('commands-container');
-
-														if (e.key === 'Escape') {
-															stopResponse();
-														}
-
-														// Command/Ctrl + Shift + Enter to submit a message pair
-														if (isCtrlPressed && e.key === 'Enter' && e.shiftKey) {
-															e.preventDefault();
-															createMessagePair(prompt);
-														}
-
-														// Check if Ctrl + R is pressed
-														if (prompt === '' && isCtrlPressed && e.key.toLowerCase() === 'r') {
-															e.preventDefault();
-															console.log('regenerate');
-
-															const regenerateButton = [
-																...document.getElementsByClassName('regenerate-response-button')
-															]?.at(-1);
-
-															regenerateButton?.click();
-														}
-
-														if (prompt === '' && e.key == 'ArrowUp') {
-															e.preventDefault();
-
-															const userMessageElement = [
-																...document.getElementsByClassName('user-message')
-															]?.at(-1);
-
-															if (userMessageElement) {
-																userMessageElement.scrollIntoView({ block: 'center' });
-																const editButton = [
-																	...document.getElementsByClassName('edit-user-message-button')
-																]?.at(-1);
-
-																editButton?.click();
+															)
+														) {
+															if (isComposing) {
+																return;
 															}
-														}
 
-														if (commandsContainerElement) {
-															if (commandsContainerElement && e.key === 'ArrowUp') {
+															// Uses keyCode '13' for Enter key for chinese/japanese keyboards.
+															//
+															// Depending on the user's settings, it will send the message
+															// either when Enter is pressed or when Ctrl+Enter is pressed.
+															const enterPressed =
+																($settings?.ctrlEnterToSend ?? false)
+																	? (e.key === 'Enter' || e.keyCode === 13) && isCtrlPressed
+																	: (e.key === 'Enter' || e.keyCode === 13) && !e.shiftKey;
+
+															if (enterPressed) {
 																e.preventDefault();
-																commandsElement.selectUp();
-
-																const commandOptionButton = [
-																	...document.getElementsByClassName(
-																		'selected-command-option-button'
-																	)
-																]?.at(-1);
-																commandOptionButton.scrollIntoView({ block: 'center' });
-															}
-
-															if (commandsContainerElement && e.key === 'ArrowDown') {
-																e.preventDefault();
-																commandsElement.selectDown();
-
-																const commandOptionButton = [
-																	...document.getElementsByClassName(
-																		'selected-command-option-button'
-																	)
-																]?.at(-1);
-																commandOptionButton.scrollIntoView({ block: 'center' });
-															}
-
-															if (commandsContainerElement && e.key === 'Tab') {
-																e.preventDefault();
-
-																const commandOptionButton = [
-																	...document.getElementsByClassName(
-																		'selected-command-option-button'
-																	)
-																]?.at(-1);
-
-																commandOptionButton?.click();
-															}
-
-															if (commandsContainerElement && e.key === 'Enter') {
-																e.preventDefault();
-
-																const commandOptionButton = [
-																	...document.getElementsByClassName(
-																		'selected-command-option-button'
-																	)
-																]?.at(-1);
-
-																if (commandOptionButton) {
-																	commandOptionButton?.click();
-																} else {
-																	document.getElementById('send-message-button')?.click();
-																}
-															}
-														} else {
-															if (
-																!$mobile ||
-																!(
-																	'ontouchstart' in window ||
-																	navigator.maxTouchPoints > 0 ||
-																	navigator.msMaxTouchPoints > 0
-																)
-															) {
-																if (inOrNearComposition(e)) {
-																	return;
-																}
-
-																// Uses keyCode '13' for Enter key for chinese/japanese keyboards.
-																//
-																// Depending on the user's settings, it will send the message
-																// either when Enter is pressed or when Ctrl+Enter is pressed.
-																const enterPressed =
-																	($settings?.ctrlEnterToSend ?? false)
-																		? (e.key === 'Enter' || e.keyCode === 13) && isCtrlPressed
-																		: (e.key === 'Enter' || e.keyCode === 13) && !e.shiftKey;
-
-																if (enterPressed) {
-																	e.preventDefault();
-																	if (prompt !== '' || files.length > 0) {
-																		dispatch('submit', prompt);
-																	}
+																if (prompt !== '' || files.length > 0) {
+																	dispatch('submit', prompt);
 																}
 															}
 														}
+													}
 
-														if (e.key === 'Escape') {
-															console.log('Escape');
-															atSelectedModel = undefined;
-															selectedToolIds = [];
-															selectedFilterIds = [];
+													if (e.key === 'Escape') {
+														console.log('Escape');
+														atSelectedModel = undefined;
+														selectedToolIds = [];
+														selectedFilterIds = [];
 
-															webSearchEnabled = false;
-															imageGenerationEnabled = false;
-															codeInterpreterEnabled = false;
-														}
-													}}
-													on:paste={async (e) => {
-														e = e.detail.event;
-														console.log(e);
+														webSearchEnabled = false;
+														imageGenerationEnabled = false;
+														codeInterpreterEnabled = false;
+													}
+												}}
+												on:paste={async (e) => {
+													e = e.detail.event;
+													console.log(e);
 
-														const clipboardData = e.clipboardData || window.clipboardData;
+													const clipboardData = e.clipboardData || window.clipboardData;
 
-														if (clipboardData && clipboardData.items) {
-															for (const item of clipboardData.items) {
-																if (item.type.indexOf('image') !== -1) {
-																	const blob = item.getAsFile();
-																	const reader = new FileReader();
+													if (clipboardData && clipboardData.items) {
+														for (const item of clipboardData.items) {
+															if (item.type.indexOf('image') !== -1) {
+																const blob = item.getAsFile();
+																const reader = new FileReader();
 
-																	reader.onload = function (e) {
-																		files = [
-																			...files,
-																			{
-																				type: 'image',
-																				url: `${e.target.result}`
-																			}
-																		];
-																	};
-
-																	reader.readAsDataURL(blob);
-																} else if (item?.kind === 'file') {
-																	const file = item.getAsFile();
-																	if (file) {
-																		const _files = [file];
-																		await inputFilesHandler(_files);
-																		e.preventDefault();
-																	}
-																} else if (item.type === 'text/plain') {
-																	if (($settings?.largeTextAsFile ?? false) && !shiftKey) {
-																		const text = clipboardData.getData('text/plain');
-
-																		if (text.length > PASTED_TEXT_CHARACTER_LIMIT) {
-																			e.preventDefault();
-																			const blob = new Blob([text], { type: 'text/plain' });
-																			const file = new File(
-																				[blob],
-																				`Pasted_Text_${Date.now()}.txt`,
-																				{
-																					type: 'text/plain'
-																				}
-																			);
-
-																			await uploadFileHandler(file, true);
+																reader.onload = function (e) {
+																	files = [
+																		...files,
+																		{
+																			type: 'image',
+																			url: `${e.target.result}`
 																		}
+																	];
+																};
+
+																reader.readAsDataURL(blob);
+															} else if (item.type === 'text/plain') {
+																if (($settings?.largeTextAsFile ?? false) && !shiftKey) {
+																	const text = clipboardData.getData('text/plain');
+
+																	if (text.length > PASTED_TEXT_CHARACTER_LIMIT) {
+																		e.preventDefault();
+																		const blob = new Blob([text], { type: 'text/plain' });
+																		const file = new File([blob], `Pasted_Text_${Date.now()}.txt`, {
+																			type: 'text/plain'
+																		});
+
+																		await uploadFileHandler(file, true);
 																	}
 																}
 															}
 														}
-													}}
-												/>
-											{/key}
+													}
+												}}
+											/>
 										</div>
 									{:else}
 										<textarea
 											id="chat-input"
 											dir={$settings?.chatDirection ?? 'auto'}
 											bind:this={chatInputElement}
-											class="scrollbar-hidden bg-transparent dark:text-gray-200 outline-hidden w-full pt-4 pb-1 px-1 resize-none"
+											class="scrollbar-hidden bg-transparent dark:text-gray-200 outline-hidden w-full pt-3 px-1 resize-none"
 											placeholder={placeholder ? placeholder : $i18n.t('Send a Message')}
 											bind:value={prompt}
-											on:input={() => {
-												command = getCommand();
-											}}
-											on:click={() => {
-												command = getCommand();
-											}}
 											on:compositionstart={() => (isComposing = true)}
-											on:compositionend={(e) => {
-												compositionEndedAt = e.timeStamp;
-												isComposing = false;
-											}}
+											on:compositionend={() => (isComposing = false)}
 											on:keydown={async (e) => {
 												const isCtrlPressed = e.ctrlKey || e.metaKey; // metaKey is for Cmd key on Mac
 
@@ -1537,7 +1092,7 @@
 															navigator.msMaxTouchPoints > 0
 														)
 													) {
-														if (inOrNearComposition(e)) {
+														if (isComposing) {
 															return;
 														}
 
@@ -1564,20 +1119,17 @@
 
 													if (words.length > 0) {
 														const word = words.at(0);
+														const fullPrompt = prompt;
 
-														if (word && e.target instanceof HTMLTextAreaElement) {
-															// Prevent default tab behavior
-															e.preventDefault();
-															e.target.setSelectionRange(word?.startIndex, word.endIndex + 1);
-															e.target.focus();
+														prompt = prompt.substring(0, word?.endIndex + 1);
+														await tick();
 
-															const selectionRow =
-																(word?.startIndex - (word?.startIndex % e.target.cols)) /
-																e.target.cols;
-															const lineHeight = e.target.clientHeight / e.target.rows;
+														e.target.scrollTop = e.target.scrollHeight;
+														prompt = fullPrompt;
+														await tick();
 
-															e.target.scrollTop = lineHeight * selectionRow;
-														}
+														e.preventDefault();
+														e.target.setSelectionRange(word?.startIndex, word.endIndex + 1);
 													}
 
 													e.target.style.height = '';
@@ -1608,7 +1160,6 @@
 
 												if (clipboardData && clipboardData.items) {
 													for (const item of clipboardData.items) {
-														console.log(item);
 														if (item.type.indexOf('image') !== -1) {
 															const blob = item.getAsFile();
 															const reader = new FileReader();
@@ -1624,13 +1175,6 @@
 															};
 
 															reader.readAsDataURL(blob);
-														} else if (item?.kind === 'file') {
-															const file = item.getAsFile();
-															if (file) {
-																const _files = [file];
-																await inputFilesHandler(_files);
-																e.preventDefault();
-															}
 														} else if (item.type === 'text/plain') {
 															if (($settings?.largeTextAsFile ?? false) && !shiftKey) {
 																const text = clipboardData.getData('text/plain');
@@ -1706,13 +1250,14 @@
 												chatInput?.focus();
 											}}
 										>
-											<div
-												class="bg-transparent hover:bg-gray-100 text-gray-800 dark:text-white dark:hover:bg-gray-800 rounded-full p-1.5 outline-hidden focus:outline-hidden"
+											<button
+												class="bg-transparent hover:bg-gray-100 text-gray-800 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5 outline-hidden focus:outline-hidden"
+												type="button"
+												aria-label="More"
 											>
 												<svg
 													xmlns="http://www.w3.org/2000/svg"
 													viewBox="0 0 20 20"
-													aria-hidden="true"
 													fill="currentColor"
 													class="size-5"
 												>
@@ -1720,7 +1265,7 @@
 														d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"
 													/>
 												</svg>
-											</div>
+											</button>
 										</InputMenu>
 
 										{#if $_user && (showToolsButton || (toggleFilters && toggleFilters.length > 0) || showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton)}
@@ -1786,7 +1331,7 @@
 																<Sparkles className="size-4" strokeWidth="1.75" />
 															{/if}
 															<span
-																class="hidden @xl:block whitespace-nowrap text-ellipsis leading-none normal-case pr-0.5"
+																class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis leading-none pr-0.5"
 																>{filter?.name}</span
 															>
 														</button>
@@ -1805,7 +1350,7 @@
 														>
 															<GlobeAlt className="size-4" strokeWidth="1.75" />
 															<span
-																class="hidden @xl:block whitespace-nowrap text-ellipsis leading-none normal-case pr-0.5"
+																class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis leading-none pr-0.5"
 																>{$i18n.t('Web Search')}</span
 															>
 														</button>
@@ -1824,7 +1369,7 @@
 														>
 															<Photo className="size-4" strokeWidth="1.75" />
 															<span
-																class="hidden @xl:block whitespace-nowrap text-ellipsis leading-none normal-case pr-0.5"
+																class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis leading-none pr-0.5"
 																>{$i18n.t('Image')}</span
 															>
 														</button>
@@ -1834,23 +1379,16 @@
 												{#if showCodeInterpreterButton}
 													<Tooltip content={$i18n.t('Execute code for analysis')} placement="top">
 														<button
-															aria-label={codeInterpreterEnabled
-																? $i18n.t('Disable Code Interpreter')
-																: $i18n.t('Enable Code Interpreter')}
-															aria-pressed={codeInterpreterEnabled}
 															on:click|preventDefault={() =>
 																(codeInterpreterEnabled = !codeInterpreterEnabled)}
 															type="button"
-															class="px-2 @xl:px-2.5 py-2 flex gap-1.5 items-center text-sm transition-colors duration-300 max-w-full overflow-hidden hover:bg-gray-50 dark:hover:bg-gray-800 {codeInterpreterEnabled
+															class="px-2 @xl:px-2.5 py-2 flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden hover:bg-gray-50 dark:hover:bg-gray-800 {codeInterpreterEnabled
 																? ' text-sky-500 dark:text-sky-300 bg-sky-50 dark:bg-sky-200/5'
-																: 'bg-transparent text-gray-600 dark:text-gray-300 '} {($settings?.highContrastMode ??
-															false)
-																? 'm-1'
-																: 'focus:outline-hidden rounded-full'}"
+																: 'bg-transparent text-gray-600 dark:text-gray-300 '}"
 														>
 															<CommandLine className="size-4" strokeWidth="1.75" />
 															<span
-																class="hidden @xl:block whitespace-nowrap text-ellipsis leading-none normal-case pr-0.5"
+																class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis leading-none pr-0.5"
 																>{$i18n.t('Code Interpreter')}</span
 															>
 														</button>
@@ -1911,7 +1449,7 @@
 											</Tooltip>
 										{/if}
 
-										{#if (taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true) || generating}
+										{#if (taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true)}
 											<div class=" flex items-center">
 												<Tooltip content={$i18n.t('Stop')}>
 													<button
@@ -1992,9 +1530,9 @@
 																);
 															}
 														}}
-														aria-label={$i18n.t('Voice mode')}
+														aria-label="Call"
 													>
-														<Voice className="size-5" strokeWidth="2.5" />
+														<Headphone className="size-5" />
 													</button>
 												</Tooltip>
 											</div>

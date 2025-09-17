@@ -372,7 +372,6 @@ export const generateOpenAIChatCompletion = async (
 			Authorization: `Bearer ${token}`,
 			'Content-Type': 'application/json'
 		},
-		credentials: 'include',
 		body: JSON.stringify(body)
 	})
 		.then(async (res) => {
@@ -380,7 +379,7 @@ export const generateOpenAIChatCompletion = async (
 			return res.json();
 		})
 		.catch((err) => {
-			error = err?.detail ?? err;
+			error = `${err?.detail ?? err}`;
 			return null;
 		});
 

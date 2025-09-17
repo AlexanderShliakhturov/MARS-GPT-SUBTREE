@@ -6,10 +6,11 @@
 
 	import {
 		archiveAllChats,
+		createNewChat,
 		deleteAllChats,
 		getAllChats,
-		getChatList,
-		importChat
+		getAllUserChats,
+		getChatList
 	} from '$lib/apis/chats';
 	import { getImportOrigin, convertOpenAIChats } from '$lib/utils';
 	import { onMount, getContext } from 'svelte';
@@ -57,18 +58,9 @@
 			console.log(chat);
 
 			if (chat.chat) {
-				await importChat(
-					localStorage.token,
-					chat.chat,
-					chat.meta ?? {},
-					false,
-					null,
-					chat?.created_at ?? null,
-					chat?.updated_at ?? null
-				);
+				await createNewChat(localStorage.token, chat.chat);
 			} else {
-				// Legacy format
-				await importChat(localStorage.token, chat, {}, false, null);
+				await createNewChat(localStorage.token, chat);
 			}
 		}
 
@@ -109,7 +101,6 @@
 	const handleArchivedChatsChange = async () => {
 		currentChatPage.set(1);
 		await chats.set(await getChatList(localStorage.token, $currentChatPage));
-
 		scrollPaginationEnabled.set(true);
 	};
 </script>

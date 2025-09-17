@@ -517,7 +517,6 @@ class SafeWebBaseLoader(WebBaseLoader):
                     async with session.get(
                         url,
                         **(self.requests_kwargs | kwargs),
-                        allow_redirects=False,
                     ) as response:
                         if self.raise_for_status:
                             response.raise_for_status()
@@ -615,7 +614,7 @@ def get_web_loader(
         WebLoaderClass = SafeWebBaseLoader
     if WEB_LOADER_ENGINE.value == "playwright":
         WebLoaderClass = SafePlaywrightURLLoader
-        web_loader_args["playwright_timeout"] = PLAYWRIGHT_TIMEOUT.value
+        web_loader_args["playwright_timeout"] = PLAYWRIGHT_TIMEOUT.value * 1000
         if PLAYWRIGHT_WS_URL.value:
             web_loader_args["playwright_ws_url"] = PLAYWRIGHT_WS_URL.value
 

@@ -90,9 +90,7 @@
 	};
 
 	onMount(async () => {
-		if ($config?.features?.enable_version_update_check) {
-			checkForVersionUpdates();
-		}
+		checkForVersionUpdates();
 
 		await Promise.all([
 			(async () => {
@@ -139,18 +137,16 @@
 										v{WEBUI_VERSION}
 									</Tooltip>
 
-									{#if $config?.features?.enable_version_update_check}
-										<a
-											href="https://github.com/open-webui/open-webui/releases/tag/v{version.latest}"
-											target="_blank"
-										>
-											{updateAvailable === null
-												? $i18n.t('Checking for updates...')
-												: updateAvailable
-													? `(v${version.latest} ${$i18n.t('available!')})`
-													: $i18n.t('(latest)')}
-										</a>
-									{/if}
+									<a
+										href="https://github.com/open-webui/open-webui/releases/tag/v{version.latest}"
+										target="_blank"
+									>
+										{updateAvailable === null
+											? $i18n.t('Checking for updates...')
+											: updateAvailable
+												? `(v${version.latest} ${$i18n.t('available!')})`
+												: $i18n.t('(latest)')}
+									</a>
 								</div>
 
 								<button
@@ -164,17 +160,15 @@
 								</button>
 							</div>
 
-							{#if $config?.features?.enable_version_update_check}
-								<button
-									class=" text-xs px-3 py-1.5 bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-lg font-medium"
-									type="button"
-									on:click={() => {
-										checkForVersionUpdates();
-									}}
-								>
-									{$i18n.t('Check for updates')}
-								</button>
-							{/if}
+							<button
+								class=" text-xs px-3 py-1.5 bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-lg font-medium"
+								type="button"
+								on:click={() => {
+									checkForVersionUpdates();
+								}}
+							>
+								{$i18n.t('Check for updates')}
+							</button>
 						</div>
 					</div>
 
@@ -290,7 +284,7 @@
 							<select
 								class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 text-xs bg-transparent outline-hidden text-right"
 								bind:value={adminConfig.DEFAULT_USER_ROLE}
-								placeholder={$i18n.t('Select a role')}
+								placeholder="Select a role"
 							>
 								<option value="pending">{$i18n.t('pending')}</option>
 								<option value="user">{$i18n.t('user')}</option>
@@ -587,7 +581,7 @@
 												</div>
 											</div>
 											<div class="flex justify-between items-center text-xs">
-												<div class=" font-medium">{$i18n.t('Validate certificate')}</div>
+												<div class=" font-medium">Validate certificate</div>
 
 												<div class="mt-1">
 													<Switch bind:state={LDAP_SERVER.validate_cert} />

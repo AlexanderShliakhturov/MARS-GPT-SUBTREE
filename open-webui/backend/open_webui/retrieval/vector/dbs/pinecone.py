@@ -32,8 +32,6 @@ from open_webui.config import (
     PINECONE_CLOUD,
 )
 from open_webui.env import SRC_LOG_LEVELS
-from open_webui.retrieval.vector.utils import stringify_metadata
-
 
 NO_LIMIT = 10000  # Reasonable limit to avoid overwhelming the system
 BATCH_SIZE = 100  # Recommended batch size for Pinecone operations
@@ -185,7 +183,7 @@ class PineconeClient(VectorDBBase):
             point = {
                 "id": item["id"],
                 "values": item["vector"],
-                "metadata": stringify_metadata(metadata),
+                "metadata": metadata,
             }
             points.append(point)
         return points

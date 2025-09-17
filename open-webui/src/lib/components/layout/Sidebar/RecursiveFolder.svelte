@@ -8,23 +8,6 @@
 	import fileSaver from 'file-saver';
 	const { saveAs } = fileSaver;
 
-	import { toast } from 'svelte-sonner';
-
-	import { chatId, mobile, selectedFolder, showSidebar } from '$lib/stores';
-
-	import {
-		deleteFolderById,
-		updateFolderIsExpandedById,
-		updateFolderById,
-		updateFolderParentIdById
-	} from '$lib/apis/folders';
-	import {
-		getChatById,
-		getChatsByFolderId,
-		importChat,
-		updateChatFolderIdById
-	} from '$lib/apis/chats';
-
 	import ChevronDown from '../../icons/ChevronDown.svelte';
 	import ChevronRight from '../../icons/ChevronRight.svelte';
 	import Collapsible from '../../common/Collapsible.svelte';
@@ -32,29 +15,34 @@
 
 	import FolderOpen from '$lib/components/icons/FolderOpen.svelte';
 	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
-
+	import {
+		deleteFolderById,
+		updateFolderIsExpandedById,
+		updateFolderNameById,
+		updateFolderParentIdById
+	} from '$lib/apis/folders';
+	import { toast } from 'svelte-sonner';
+	import {
+		getChatById,
+		getChatsByFolderId,
+		importChat,
+		updateChatFolderIdById
+	} from '$lib/apis/chats';
 	import ChatItem from './ChatItem.svelte';
 	import FolderMenu from './Folders/FolderMenu.svelte';
 	import DeleteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
-	import FolderModal from './Folders/FolderModal.svelte';
-	import { goto } from '$app/navigation';
-	import Emoji from '$lib/components/common/Emoji.svelte';
 
 	export let open = false;
 
 	export let folders;
 	export let folderId;
-	export let shiftKey = false;
 
 	export let className = '';
 
 	export let parentDragged = false;
 
-	export let onDelete = (e) => {};
-
 	let folderElement;
 
-	let showFolderModal = false;
 	let edit = false;
 
 	let draggedOver = false;
@@ -115,66 +103,48 @@
 					} else {
 						// Handle the drag-and-drop data for folders or chats (same as before)
 						const dataTransfer = e.dataTransfer.getData('text/plain');
+						const data = JSON.parse(dataTransfer);
+						console.log(data);
 
-						try {
-							const data = JSON.parse(dataTransfer);
-							console.log(data);
+						const { type, id, item } = data;
 
-							const { type, id, item } = data;
-
-							if (type === 'folder') {
-								open = true;
-								if (id === folderId) {
-									return;
-								}
-								// Move the folder
-								const res = await updateFolderParentIdById(localStorage.token, id, folderId).catch(
-									(error) => {
-										toast.error(`${error}`);
-										return null;
-									}
-								);
-
-								if (res) {
-									dispatch('update');
-								}
-							} else if (type === 'chat') {
-								open = true;
-
-								let chat = await getChatById(localStorage.token, id).catch((error) => {
-									return null;
-								});
-								if (!chat && item) {
-									chat = await importChat(
-										localStorage.token,
-										item.chat,
-										item?.meta ?? {},
-										false,
-										null,
-										item?.created_at ?? null,
-										item?.updated_at ?? null
-									).catch((error) => {
-										toast.error(`${error}`);
-										return null;
-									});
-								}
-
-								// Move the chat
-								const res = await updateChatFolderIdById(
-									localStorage.token,
-									chat.id,
-									folderId
-								).catch((error) => {
+						if (type === 'folder') {
+							open = true;
+							if (id === folderId) {
+								return;
+							}
+							// Move the folder
+							const res = await updateFolderParentIdById(localStorage.token, id, folderId).catch(
+								(error) => {
 									toast.error(`${error}`);
 									return null;
-								});
-
-								if (res) {
-									dispatch('update');
 								}
+							);
+
+							if (res) {
+								dispatch('update');
 							}
-						} catch (error) {
-							console.log('Error parsing dataTransfer:', error);
+						} else if (type === 'chat') {
+							open = true;
+
+							let chat = await getChatById(localStorage.token, id).catch((error) => {
+								return null;
+							});
+							if (!chat && item) {
+								chat = await importChat(localStorage.token, item.chat, item?.meta ?? {});
+							}
+
+							// Move the chat
+							const res = await updateChatFolderIdById(localStorage.token, chat.id, folderId).catch(
+								(error) => {
+									toast.error(`${error}`);
+									return null;
+								}
+							);
+
+							if (res) {
+								dispatch('update');
+							}
 						}
 					}
 				}
@@ -250,7 +220,7 @@
 			delete folders[folderId].new;
 
 			await tick();
-			renameHandler();
+			editHandler();
 		}
 	});
 
@@ -276,13 +246,18 @@
 
 		if (res) {
 			toast.success($i18n.t('Folder deleted successfully'));
-			onDelete(folderId);
+			dispatch('update');
 		}
 	};
 
-	const updateHandler = async ({ name, data }) => {
+	const nameUpdateHandler = async () => {
 		if (name === '') {
 			toast.error($i18n.t('Folder name cannot be empty.'));
+			return;
+		}
+
+		if (name === folders[folderId].name) {
+			edit = false;
 			return;
 		}
 
@@ -291,10 +266,7 @@
 		name = name.trim();
 		folders[folderId].name = name;
 
-		const res = await updateFolderById(localStorage.token, folderId, {
-			name,
-			...(data ? { data } : {})
-		}).catch((error) => {
+		const res = await updateFolderNameById(localStorage.token, folderId, name).catch((error) => {
 			toast.error(`${error}`);
 
 			folders[folderId].name = currentName;
@@ -303,17 +275,7 @@
 
 		if (res) {
 			folders[folderId].name = name;
-			if (data) {
-				folders[folderId].data = data;
-			}
-
-			// toast.success($i18n.t('Folder name updated successfully'));
-			toast.success($i18n.t('Folder updated successfully'));
-
-			if ($selectedFolder?.id === folderId) {
-				selectedFolder.set(folders[folderId]);
-			}
-
+			toast.success($i18n.t('Folder name updated successfully'));
 			dispatch('update');
 		}
 	};
@@ -338,7 +300,7 @@
 
 	$: isExpandedUpdateDebounceHandler(open);
 
-	const renameHandler = async () => {
+	const editHandler = async () => {
 		console.log('Edit');
 		await tick();
 		name = folders[folderId].name;
@@ -386,13 +348,6 @@
 	</div>
 </DeleteConfirmDialog>
 
-<FolderModal
-	bind:show={showFolderModal}
-	edit={true}
-	folder={folders[folderId]}
-	onSubmit={updateHandler}
-/>
-
 {#if dragged && x && y}
 	<DragGhost {x} {y}>
 		<div class=" bg-black/80 backdrop-blur-2xl px-2 py-1 rounded-lg w-fit max-w-40">
@@ -427,51 +382,18 @@
 		<div class="w-full group">
 			<button
 				id="folder-{folderId}-button"
-				class="relative w-full py-1.5 px-2 rounded-lg flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-500 font-medium hover:bg-gray-100 dark:hover:bg-gray-900 transition {$selectedFolder?.id ===
-				folderId
-					? 'bg-gray-100 dark:bg-gray-900'
-					: ''}"
+				class="relative w-full py-1.5 px-2 rounded-md flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-500 font-medium hover:bg-gray-100 dark:hover:bg-gray-900 transition"
 				on:dblclick={() => {
-					renameHandler();
-				}}
-				on:click={async (e) => {
-					await goto('/');
-
-					selectedFolder.set(folders[folderId]);
-
-					if ($mobile) {
-						showSidebar.set(!$showSidebar);
-					}
+					editHandler();
 				}}
 			>
-				<button
-					class="text-gray-300 dark:text-gray-600 transition-all"
-					on:click={(e) => {
-						e.stopPropagation();
-					}}
-				>
-					{#if folders[folderId]?.meta?.icon}
-						<div class="flex group-hover:hidden transition-all">
-							<Emoji className="size-4" shortCode={folders[folderId].meta.icon} />
-						</div>
-
-						<div class="hidden group-hover:flex transition-all p-[1px]">
-							{#if open}
-								<ChevronDown className=" size-3.5" strokeWidth="2.5" />
-							{:else}
-								<ChevronRight className=" size-3.5" strokeWidth="2.5" />
-							{/if}
-						</div>
+				<div class="text-gray-300 dark:text-gray-600">
+					{#if open}
+						<ChevronDown className=" size-3" strokeWidth="2.5" />
 					{:else}
-						<div class="p-[1px]">
-							{#if open}
-								<ChevronDown className=" size-3.5" strokeWidth="2.5" />
-							{:else}
-								<ChevronRight className=" size-3.5" strokeWidth="2.5" />
-							{/if}
-						</div>
+						<ChevronRight className=" size-3" strokeWidth="2.5" />
 					{/if}
-				</button>
+				</div>
 
 				<div class="translate-y-[0.5px] flex-1 justify-start text-start line-clamp-1">
 					{#if edit}
@@ -483,7 +405,7 @@
 								e.target.select();
 							}}
 							on:blur={() => {
-								updateHandler({ name });
+								nameUpdateHandler();
 								edit = false;
 							}}
 							on:click={(e) => {
@@ -496,7 +418,7 @@
 							}}
 							on:keydown={(e) => {
 								if (e.key === 'Enter') {
-									updateHandler({ name });
+									nameUpdateHandler();
 									edit = false;
 								}
 							}}
@@ -512,16 +434,18 @@
 					on:pointerup={(e) => {
 						e.stopPropagation();
 					}}
-					on:click={(e) => e.stopPropagation()}
 				>
 					<FolderMenu
-						onEdit={() => {
-							showFolderModal = true;
+						on:rename={() => {
+							// Requires a timeout to prevent the click event from closing the dropdown
+							setTimeout(() => {
+								editHandler();
+							}, 200);
 						}}
-						onDelete={() => {
+						on:delete={() => {
 							showDeleteConfirm = true;
 						}}
-						onExport={() => {
+						on:export={() => {
 							exportHandler();
 						}}
 					>
@@ -552,9 +476,7 @@
 							<svelte:self
 								{folders}
 								folderId={childFolder.id}
-								{shiftKey}
 								parentDragged={dragged}
-								{onDelete}
 								on:import={(e) => {
 									dispatch('import', e.detail);
 								}}
@@ -573,7 +495,6 @@
 							<ChatItem
 								id={chat.id}
 								title={chat.title}
-								{shiftKey}
 								on:change={(e) => {
 									dispatch('change', e.detail);
 								}}

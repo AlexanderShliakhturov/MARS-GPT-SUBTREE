@@ -48,28 +48,35 @@
 	/**
 	 * Finds multiple diffs in two strings and generates minimal change edits.
 	 */
-	function findChanges(oldStr: string, newStr: string) {
-		// Find the start of the difference
-		let start = 0;
-		while (start < oldStr.length && start < newStr.length && oldStr[start] === newStr[start]) {
-			start++;
-		}
-		// If equal, nothing to change
-		if (oldStr === newStr) return [];
-		// Find the end of the difference by comparing backwards
-		let endOld = oldStr.length,
-			endNew = newStr.length;
-		while (endOld > start && endNew > start && oldStr[endOld - 1] === newStr[endNew - 1]) {
-			endOld--;
-			endNew--;
-		}
-		return [
-			{
-				from: start,
-				to: endOld,
-				insert: newStr.slice(start, endNew)
+	function findChanges(oldStr, newStr) {
+		let changes = [];
+		let oldIndex = 0,
+			newIndex = 0;
+
+		while (oldIndex < oldStr.length || newIndex < newStr.length) {
+			if (oldStr[oldIndex] !== newStr[newIndex]) {
+				let start = oldIndex;
+
+				// Identify the changed portion
+				while (oldIndex < oldStr.length && oldStr[oldIndex] !== newStr[newIndex]) {
+					oldIndex++;
+				}
+				while (newIndex < newStr.length && newStr[newIndex] !== oldStr[start]) {
+					newIndex++;
+				}
+
+				changes.push({
+					from: start,
+					to: oldIndex, // Replace the differing part
+					insert: newStr.substring(start, newIndex)
+				});
+			} else {
+				oldIndex++;
+				newIndex++;
 			}
-		];
+		}
+
+		return changes;
 	}
 
 	export let id = '';
@@ -127,14 +134,9 @@
 			let timeout;
 			const worker = getPyodideWorker();
 
-			const startTag = `--||CODE-START-${id}||--`;
-			const endTag = `--||CODE-END-${id}||--`;
-
 			const script = `
 import black
-print("${startTag}")
 print(black.format_str("""${code.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/"/g, '\\"')}""", mode=black.Mode()))
-print("${endTag}")
 `;
 
 			const packages = ['black'];
@@ -149,20 +151,7 @@ print("${endTag}")
 				if (stderr) {
 					reject(stderr);
 				} else {
-					function extractBetweenDelimiters(stdout, start, end) {
-						console.log('stdout', stdout);
-						const startIdx = stdout.indexOf(start);
-						const endIdx = stdout.indexOf(end, startIdx + start.length);
-						if (startIdx === -1 || endIdx === -1) return null;
-						return stdout.slice(startIdx + start.length, endIdx).trim();
-					}
-
-					const formatted = extractBetweenDelimiters(
-						stdout && typeof stdout === 'string' ? stdout : '',
-						startTag,
-						endTag
-					);
-
+					const formatted = stdout && typeof stdout === 'string' ? stdout.trim() : '';
 					resolve({ code: formatted });
 				}
 			}
@@ -225,7 +214,7 @@ print("${endTag}")
 		basicSetup,
 		keymap.of([{ key: 'Tab', run: acceptCompletion }, indentWithTab]),
 		indentUnit.of('    '),
-		placeholder($i18n.t('Enter your code here...')),
+		placeholder('Enter your code here...'),
 		EditorView.updateListener.of((e) => {
 			if (e.docChanged) {
 				_value = e.state.doc.toString();

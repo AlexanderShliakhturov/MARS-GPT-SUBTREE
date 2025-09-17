@@ -26,14 +26,6 @@
 			return 'w-[30rem]';
 		} else if (size === 'md') {
 			return 'w-[42rem]';
-		} else if (size === 'lg') {
-			return 'w-[56rem]';
-		} else if (size === 'xl') {
-			return 'w-[70rem]';
-		} else if (size === '2xl') {
-			return 'w-[84rem]';
-		} else if (size === '3xl') {
-			return 'w-[100rem]';
 		} else {
 			return 'w-[56rem]';
 		}
@@ -82,7 +74,6 @@
 {#if show}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 	<div
 		bind:this={modalElement}
 		aria-modal="true"

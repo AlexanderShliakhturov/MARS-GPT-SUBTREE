@@ -437,7 +437,7 @@
 				...$MODEL_DOWNLOAD_POOL
 			});
 			await deleteModel(localStorage.token, model);
-			toast.success($i18n.t('{{model}} download has been canceled', { model: model }));
+			toast.success(`${model} download has been canceled`);
 		}
 	};
 
@@ -1057,6 +1057,6 @@
 	</div>
 {:else}
 	<div class="flex justify-center items-center w-full h-full py-3">
-		<Spinner className="size-5" />
+		<Spinner />
 	</div>
 {/if}

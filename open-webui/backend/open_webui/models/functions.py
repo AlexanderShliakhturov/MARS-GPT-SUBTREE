@@ -6,7 +6,7 @@ from open_webui.internal.db import Base, JSONField, get_db
 from open_webui.models.users import Users
 from open_webui.env import SRC_LOG_LEVELS
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import BigInteger, Boolean, Column, String, Text, Index
+from sqlalchemy import BigInteger, Boolean, Column, String, Text
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
@@ -31,8 +31,6 @@ class Function(Base):
     updated_at = Column(BigInteger)
     created_at = Column(BigInteger)
 
-    __table_args__ = (Index("is_global_idx", "is_global"),)
-
 
 class FunctionMeta(BaseModel):
     description: Optional[str] = None
@@ -46,22 +44,6 @@ class FunctionModel(BaseModel):
     type: str
     content: str
     meta: FunctionMeta
-    is_active: bool = False
-    is_global: bool = False
-    updated_at: int  # timestamp in epoch
-    created_at: int  # timestamp in epoch
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class FunctionWithValvesModel(BaseModel):
-    id: str
-    user_id: str
-    name: str
-    type: str
-    content: str
-    meta: FunctionMeta
-    valves: Optional[dict] = None
     is_active: bool = False
     is_global: bool = False
     updated_at: int  # timestamp in epoch
@@ -127,8 +109,8 @@ class FunctionsTable:
             return None
 
     def sync_functions(
-        self, user_id: str, functions: list[FunctionWithValvesModel]
-    ) -> list[FunctionWithValvesModel]:
+        self, user_id: str, functions: list[FunctionModel]
+    ) -> list[FunctionModel]:
         # Synchronize functions for a user by updating existing ones, inserting new ones, and removing those that are no longer present.
         try:
             with get_db() as db:
@@ -182,24 +164,17 @@ class FunctionsTable:
         except Exception:
             return None
 
-    def get_functions(
-        self, active_only=False, include_valves=False
-    ) -> list[FunctionModel | FunctionWithValvesModel]:
+    def get_functions(self, active_only=False) -> list[FunctionModel]:
         with get_db() as db:
             if active_only:
-                functions = db.query(Function).filter_by(is_active=True).all()
-
-            else:
-                functions = db.query(Function).all()
-
-            if include_valves:
                 return [
-                    FunctionWithValvesModel.model_validate(function)
-                    for function in functions
+                    FunctionModel.model_validate(function)
+                    for function in db.query(Function).filter_by(is_active=True).all()
                 ]
             else:
                 return [
-                    FunctionModel.model_validate(function) for function in functions
+                    FunctionModel.model_validate(function)
+                    for function in db.query(Function).all()
                 ]
 
     def get_functions_by_type(
@@ -275,7 +250,9 @@ class FunctionsTable:
 
             return user_settings["functions"]["valves"].get(id, {})
         except Exception as e:
-            log.exception(f"Error getting user values by id {id} and user id {user_id}")
+            log.exception(
+                f"Error getting user values by id {id} and user id {user_id}: {e}"
+            )
             return None
 
     def update_user_valves_by_id_and_user_id(

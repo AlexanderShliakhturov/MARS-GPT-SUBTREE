@@ -1,7 +1,7 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
 import { getTimeRange } from '$lib/utils';
 
-export const createNewChat = async (token: string, chat: object, folderId: string | null) => {
+export const createNewChat = async (token: string, chat: object) => {
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/chats/new`, {
@@ -12,8 +12,7 @@ export const createNewChat = async (token: string, chat: object, folderId: strin
 			authorization: `Bearer ${token}`
 		},
 		body: JSON.stringify({
-			chat: chat,
-			folder_id: folderId ?? null
+			chat: chat
 		})
 	})
 		.then(async (res) => {
@@ -38,9 +37,7 @@ export const importChat = async (
 	chat: object,
 	meta: object | null,
 	pinned?: boolean,
-	folderId?: string | null,
-	createdAt: number | null = null,
-	updatedAt: number | null = null
+	folderId?: string | null
 ) => {
 	let error = null;
 
@@ -55,9 +52,7 @@ export const importChat = async (
 			chat: chat,
 			meta: meta ?? {},
 			pinned: pinned,
-			folder_id: folderId,
-			created_at: createdAt ?? null,
-			updated_at: updatedAt ?? null
+			folder_id: folderId
 		})
 	})
 		.then(async (res) => {

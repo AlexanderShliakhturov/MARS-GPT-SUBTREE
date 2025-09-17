@@ -8,26 +8,17 @@ import { toast } from 'svelte-sonner';
 export const getModels = async (
 	token: string = '',
 	connections: object | null = null,
-	base: boolean = false,
-	refresh: boolean = false
+	base: boolean = false
 ) => {
-	const searchParams = new URLSearchParams();
-	if (refresh) {
-		searchParams.append('refresh', 'true');
-	}
-
 	let error = null;
-	const res = await fetch(
-		`${WEBUI_BASE_URL}/api/models${base ? '/base' : ''}?${searchParams.toString()}`,
-		{
-			method: 'GET',
-			headers: {
-				Accept: 'application/json',
-				'Content-Type': 'application/json',
-				...(token && { authorization: `Bearer ${token}` })
-			}
+	const res = await fetch(`${WEBUI_BASE_URL}/api/models${base ? '/base' : ''}`, {
+		method: 'GET',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			...(token && { authorization: `Bearer ${token}` })
 		}
-	)
+	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();
 			return res.json();
@@ -347,31 +338,25 @@ export const getToolServerData = async (token: string, url: string) => {
 	return data;
 };
 
-export const getToolServersData = async (servers: object[]) => {
+export const getToolServersData = async (i18n, servers: object[]) => {
 	return (
 		await Promise.all(
 			servers
 				.filter((server) => server?.config?.enable)
 				.map(async (server) => {
-					let error = null;
-
-					let toolServerToken = null;
-					const auth_type = server?.auth_type ?? 'bearer';
-					if (auth_type === 'bearer') {
-						toolServerToken = server?.key;
-					} else if (auth_type === 'none') {
-						// No authentication
-					} else if (auth_type === 'session') {
-						toolServerToken = localStorage.token;
-					}
-
 					const data = await getToolServerData(
-						toolServerToken,
+						(server?.auth_type ?? 'bearer') === 'bearer' ? server?.key : localStorage.token,
 						(server?.path ?? '').includes('://')
 							? server?.path
 							: `${server?.url}${(server?.path ?? '').startsWith('/') ? '' : '/'}${server?.path}`
 					).catch((err) => {
-						error = err;
+						toast.error(
+							i18n.t(`Failed to connect to {{URL}} OpenAPI tool server`, {
+								URL: (server?.path ?? '').includes('://')
+									? server?.path
+									: `${server?.url}${(server?.path ?? '').startsWith('/') ? '' : '/'}${server?.path}`
+							})
+						);
 						return null;
 					});
 
@@ -383,13 +368,6 @@ export const getToolServersData = async (servers: object[]) => {
 							info: info,
 							specs: specs
 						};
-					} else if (error) {
-						return {
-							error,
-							url: server?.url
-						};
-					} else {
-						return null;
 					}
 				})
 		)
@@ -478,7 +456,7 @@ export const executeToolServer = async (
 			...(token && { authorization: `Bearer ${token}` })
 		};
 
-		const requestOptions: RequestInit = {
+		let requestOptions: RequestInit = {
 			method: httpMethod.toUpperCase(),
 			headers
 		};
@@ -493,14 +471,7 @@ export const executeToolServer = async (
 			throw new Error(`HTTP error! Status: ${res.status}. Message: ${resText}`);
 		}
 
-		let responseData;
-		try {
-			responseData = await res.json();
-		} catch (err) {
-			responseData = await res.text();
-		}
-
-		return responseData;
+		return await res.json();
 	} catch (err: any) {
 		error = err.message;
 		console.error('API Request Error:', error);
@@ -838,7 +809,7 @@ export const generateQueries = async (
 	model: string,
 	messages: object[],
 	prompt: string,
-	type: string = 'web_search'
+	type?: string = 'web_search'
 ) => {
 	let error = null;
 
@@ -1034,7 +1005,7 @@ export const getPipelinesList = async (token: string = '') => {
 		throw error;
 	}
 
-	const pipelines = res?.data ?? [];
+	let pipelines = res?.data ?? [];
 	return pipelines;
 };
 
@@ -1177,7 +1148,7 @@ export const getPipelines = async (token: string, urlIdx?: string) => {
 		throw error;
 	}
 
-	const pipelines = res?.data ?? [];
+	let pipelines = res?.data ?? [];
 	return pipelines;
 };
 
@@ -1616,7 +1587,6 @@ export interface ModelConfig {
 }
 
 export interface ModelMeta {
-	toolIds: never[];
 	description?: string;
 	capabilities?: object;
 	profile_image_url?: string;

@@ -2,20 +2,17 @@ import asyncio
 import hashlib
 import json
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Literal, Optional, overload
 
 import aiohttp
 from aiocache import cached
 import requests
-from urllib.parse import quote
 
-from fastapi import Depends, HTTPException, Request, APIRouter
-from fastapi.responses import (
-    FileResponse,
-    StreamingResponse,
-    JSONResponse,
-    PlainTextResponse,
-)
+
+from fastapi import Depends, FastAPI, HTTPException, Request, APIRouter
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
@@ -24,7 +21,6 @@ from open_webui.config import (
     CACHE_DIR,
 )
 from open_webui.env import (
-    MODELS_CACHE_TTL,
     AIOHTTP_CLIENT_SESSION_SSL,
     AIOHTTP_CLIENT_TIMEOUT,
     AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST,
@@ -34,12 +30,12 @@ from open_webui.env import (
 from open_webui.models.users import UserModel
 
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.env import SRC_LOG_LEVELS
+from open_webui.env import ENV, SRC_LOG_LEVELS
 
 
 from open_webui.utils.payload import (
     apply_model_params_to_body_openai,
-    apply_system_prompt_to_body,
+    apply_model_system_prompt_to_body,
 )
 from open_webui.utils.misc import (
     convert_logit_bias_input_to_json,
@@ -70,7 +66,7 @@ async def send_get_request(url, key=None, user: UserModel = None):
                     **({"Authorization": f"Bearer {key}"} if key else {}),
                     **(
                         {
-                            "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
+                            "X-OpenWebUI-User-Name": user.name,
                             "X-OpenWebUI-User-Id": user.id,
                             "X-OpenWebUI-User-Email": user.email,
                             "X-OpenWebUI-User-Role": user.role,
@@ -98,12 +94,12 @@ async def cleanup_response(
         await session.close()
 
 
-def openai_reasoning_model_handler(payload):
+def openai_o_series_handler(payload):
     """
-    Handle reasoning model specific parameters
+    Handle "o" series specific parameters
     """
     if "max_tokens" in payload:
-        # Convert "max_tokens" to "max_completion_tokens" for all reasoning models
+        # Convert "max_tokens" to "max_completion_tokens" for all o-series models
         payload["max_completion_tokens"] = payload["max_tokens"]
         del payload["max_tokens"]
 
@@ -117,74 +113,6 @@ def openai_reasoning_model_handler(payload):
             payload["messages"][0]["role"] = "developer"
 
     return payload
-
-
-def get_headers_and_cookies(
-    request: Request,
-    url,
-    key=None,
-    config=None,
-    metadata: Optional[dict] = None,
-    user: UserModel = None,
-):
-    cookies = {}
-    headers = {
-        "Content-Type": "application/json",
-        **(
-            {
-                "HTTP-Referer": "https://openwebui.com/",
-                "X-Title": "Open WebUI",
-            }
-            if "openrouter.ai" in url
-            else {}
-        ),
-        **(
-            {
-                "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
-                "X-OpenWebUI-User-Id": user.id,
-                "X-OpenWebUI-User-Email": user.email,
-                "X-OpenWebUI-User-Role": user.role,
-                **(
-                    {"X-OpenWebUI-Chat-Id": metadata.get("chat_id")}
-                    if metadata and metadata.get("chat_id")
-                    else {}
-                ),
-            }
-            if ENABLE_FORWARD_USER_INFO_HEADERS
-            else {}
-        ),
-    }
-
-    token = None
-    auth_type = config.get("auth_type")
-
-    if auth_type == "bearer" or auth_type is None:
-        # Default to bearer if not specified
-        token = f"{key}"
-    elif auth_type == "none":
-        token = None
-    elif auth_type == "session":
-        cookies = request.cookies
-        token = request.state.token.credentials
-    elif auth_type == "system_oauth":
-        cookies = request.cookies
-
-        oauth_token = None
-        try:
-            oauth_token = request.app.state.oauth_manager.get_oauth_token(
-                user.id,
-                request.cookies.get("oauth_session_id", None),
-            )
-        except Exception as e:
-            log.error(f"Error getting OAuth token: {e}")
-
-        if oauth_token:
-            token = f"{oauth_token.get('access_token', '')}"
-
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
-    return headers, cookies
 
 
 ##########################################
@@ -278,23 +206,34 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             return FileResponse(file_path)
 
         url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
-        key = request.app.state.config.OPENAI_API_KEYS[idx]
-        api_config = request.app.state.config.OPENAI_API_CONFIGS.get(
-            str(idx),
-            request.app.state.config.OPENAI_API_CONFIGS.get(url, {}),  # Legacy support
-        )
-
-        headers, cookies = get_headers_and_cookies(
-            request, url, key, api_config, user=user
-        )
 
         r = None
         try:
             r = requests.post(
                 url=f"{url}/audio/speech",
                 data=body,
-                headers=headers,
-                cookies=cookies,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {request.app.state.config.OPENAI_API_KEYS[idx]}",
+                    **(
+                        {
+                            "HTTP-Referer": "https://openwebui.com/",
+                            "X-Title": "Open WebUI",
+                        }
+                        if "openrouter.ai" in url
+                        else {}
+                    ),
+                    **(
+                        {
+                            "X-OpenWebUI-User-Name": user.name,
+                            "X-OpenWebUI-User-Id": user.id,
+                            "X-OpenWebUI-User-Email": user.email,
+                            "X-OpenWebUI-User-Role": user.role,
+                        }
+                        if ENABLE_FORWARD_USER_INFO_HEADERS
+                        else {}
+                    ),
+                },
                 stream=True,
             )
 
@@ -418,22 +357,11 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
             prefix_id = api_config.get("prefix_id", None)
             tags = api_config.get("tags", [])
 
-            model_list = (
+            for model in (
                 response if isinstance(response, list) else response.get("data", [])
-            )
-            if not isinstance(model_list, list):
-                # Catch non-list responses
-                model_list = []
-
-            for model in model_list:
-                # Remove name key if its value is None #16689
-                if "name" in model and model["name"] is None:
-                    del model["name"]
-
+            ):
                 if prefix_id:
-                    model["id"] = (
-                        f"{prefix_id}.{model.get('id', model.get('name', ''))}"
-                    )
+                    model["id"] = f"{prefix_id}.{model['id']}"
 
                 if tags:
                     model["tags"] = tags
@@ -458,10 +386,7 @@ async def get_filtered_models(models, user):
     return filtered_models
 
 
-@cached(
-    ttl=MODELS_CACHE_TTL,
-    key=lambda _, user: f"openai_all_models_{user.id}" if user else "openai_all_models",
-)
+@cached(ttl=1)
 async def get_all_models(request: Request, user: UserModel) -> dict[str, list]:
     log.info("get_all_models()")
 
@@ -549,9 +474,19 @@ async def get_models(
             timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST),
         ) as session:
             try:
-                headers, cookies = get_headers_and_cookies(
-                    request, url, key, api_config, user=user
-                )
+                headers = {
+                    "Content-Type": "application/json",
+                    **(
+                        {
+                            "X-OpenWebUI-User-Name": user.name,
+                            "X-OpenWebUI-User-Id": user.id,
+                            "X-OpenWebUI-User-Email": user.email,
+                            "X-OpenWebUI-User-Role": user.role,
+                        }
+                        if ENABLE_FORWARD_USER_INFO_HEADERS
+                        else {}
+                    ),
+                }
 
                 if api_config.get("azure", False):
                     models = {
@@ -559,10 +494,11 @@ async def get_models(
                         "object": "list",
                     }
                 else:
+                    headers["Authorization"] = f"Bearer {key}"
+
                     async with session.get(
                         f"{url}/models",
                         headers=headers,
-                        cookies=cookies,
                         ssl=AIOHTTP_CLIENT_SESSION_SSL,
                     ) as r:
                         if r.status != 200:
@@ -621,9 +557,7 @@ class ConnectionVerificationForm(BaseModel):
 
 @router.post("/verify")
 async def verify_connection(
-    request: Request,
-    form_data: ConnectionVerificationForm,
-    user=Depends(get_admin_user),
+    form_data: ConnectionVerificationForm, user=Depends(get_admin_user)
 ):
     url = form_data.url
     key = form_data.key
@@ -635,9 +569,19 @@ async def verify_connection(
         timeout=aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST),
     ) as session:
         try:
-            headers, cookies = get_headers_and_cookies(
-                request, url, key, api_config, user=user
-            )
+            headers = {
+                "Content-Type": "application/json",
+                **(
+                    {
+                        "X-OpenWebUI-User-Name": user.name,
+                        "X-OpenWebUI-User-Id": user.id,
+                        "X-OpenWebUI-User-Email": user.email,
+                        "X-OpenWebUI-User-Role": user.role,
+                    }
+                    if ENABLE_FORWARD_USER_INFO_HEADERS
+                    else {}
+                ),
+            }
 
             if api_config.get("azure", False):
                 headers["api-key"] = key
@@ -646,47 +590,35 @@ async def verify_connection(
                 async with session.get(
                     url=f"{url}/openai/models?api-version={api_version}",
                     headers=headers,
-                    cookies=cookies,
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
                 ) as r:
-                    try:
-                        response_data = await r.json()
-                    except Exception:
-                        response_data = await r.text()
-
                     if r.status != 200:
-                        if isinstance(response_data, (dict, list)):
-                            return JSONResponse(
-                                status_code=r.status, content=response_data
-                            )
-                        else:
-                            return PlainTextResponse(
-                                status_code=r.status, content=response_data
-                            )
+                        # Extract response error details if available
+                        error_detail = f"HTTP Error: {r.status}"
+                        res = await r.json()
+                        if "error" in res:
+                            error_detail = f"External Error: {res['error']}"
+                        raise Exception(error_detail)
 
+                    response_data = await r.json()
                     return response_data
             else:
+                headers["Authorization"] = f"Bearer {key}"
+
                 async with session.get(
                     f"{url}/models",
                     headers=headers,
-                    cookies=cookies,
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
                 ) as r:
-                    try:
-                        response_data = await r.json()
-                    except Exception:
-                        response_data = await r.text()
-
                     if r.status != 200:
-                        if isinstance(response_data, (dict, list)):
-                            return JSONResponse(
-                                status_code=r.status, content=response_data
-                            )
-                        else:
-                            return PlainTextResponse(
-                                status_code=r.status, content=response_data
-                            )
+                        # Extract response error details if available
+                        error_detail = f"HTTP Error: {r.status}"
+                        res = await r.json()
+                        if "error" in res:
+                            error_detail = f"External Error: {res['error']}"
+                        raise Exception(error_detail)
 
+                    response_data = await r.json()
                     return response_data
 
         except aiohttp.ClientError as e:
@@ -697,12 +629,17 @@ async def verify_connection(
             )
         except Exception as e:
             log.exception(f"Unexpected error: {e}")
-            raise HTTPException(
-                status_code=500, detail="Open WebUI: Server Connection Error"
-            )
+            error_detail = f"Unexpected error: {str(e)}"
+            raise HTTPException(status_code=500, detail=error_detail)
 
 
-def get_azure_allowed_params(api_version: str) -> set[str]:
+def convert_to_azure_payload(
+    url,
+    payload: dict,
+):
+    model = payload.get("model", "")
+
+    # Filter allowed parameters based on Azure OpenAI API
     allowed_params = {
         "messages",
         "temperature",
@@ -732,29 +669,8 @@ def get_azure_allowed_params(api_version: str) -> set[str]:
         "max_completion_tokens",
     }
 
-    try:
-        if api_version >= "2024-09-01-preview":
-            allowed_params.add("stream_options")
-    except ValueError:
-        log.debug(
-            f"Invalid API version {api_version} for Azure OpenAI. Defaulting to allowed parameters."
-        )
-
-    return allowed_params
-
-
-def is_openai_reasoning_model(model: str) -> bool:
-    return model.lower().startswith(("o1", "o3", "o4", "gpt-5"))
-
-
-def convert_to_azure_payload(url, payload: dict, api_version: str):
-    model = payload.get("model", "")
-
-    # Filter allowed parameters based on Azure OpenAI API
-    allowed_params = get_azure_allowed_params(api_version)
-
     # Special handling for o-series models
-    if is_openai_reasoning_model(model):
+    if model.startswith("o") and model.endswith("-mini"):
         # Convert max_tokens to max_completion_tokens for o-series models
         if "max_tokens" in payload:
             payload["max_completion_tokens"] = payload["max_tokens"]
@@ -804,7 +720,7 @@ async def generate_chat_completion(
             system = params.pop("system", None)
 
             payload = apply_model_params_to_body_openai(params, payload)
-            payload = apply_system_prompt_to_body(system, payload, metadata, user)
+            payload = apply_model_system_prompt_to_body(system, payload, metadata, user)
 
         # Check if user has access to the model
         if not bypass_filter and user.role == "user":
@@ -859,9 +775,10 @@ async def generate_chat_completion(
     url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
     key = request.app.state.config.OPENAI_API_KEYS[idx]
 
-    # Check if model is a reasoning model that needs special handling
-    if is_openai_reasoning_model(payload["model"]):
-        payload = openai_reasoning_model_handler(payload)
+    # Check if model is from "o" series
+    is_o_series = payload["model"].lower().startswith(("o1", "o3", "o4"))
+    if is_o_series:
+        payload = openai_o_series_handler(payload)
     elif "api.openai.com" not in url:
         # Remove "max_completion_tokens" from the payload for backward compatibility
         if "max_completion_tokens" in payload:
@@ -877,18 +794,37 @@ async def generate_chat_completion(
             convert_logit_bias_input_to_json(payload["logit_bias"])
         )
 
-    headers, cookies = get_headers_and_cookies(
-        request, url, key, api_config, metadata, user=user
-    )
+    headers = {
+        "Content-Type": "application/json",
+        **(
+            {
+                "HTTP-Referer": "https://openwebui.com/",
+                "X-Title": "Open WebUI",
+            }
+            if "openrouter.ai" in url
+            else {}
+        ),
+        **(
+            {
+                "X-OpenWebUI-User-Name": user.name,
+                "X-OpenWebUI-User-Id": user.id,
+                "X-OpenWebUI-User-Email": user.email,
+                "X-OpenWebUI-User-Role": user.role,
+            }
+            if ENABLE_FORWARD_USER_INFO_HEADERS
+            else {}
+        ),
+    }
 
     if api_config.get("azure", False):
-        api_version = api_config.get("api_version", "2023-03-15-preview")
-        request_url, payload = convert_to_azure_payload(url, payload, api_version)
+        request_url, payload = convert_to_azure_payload(url, payload)
+        api_version = api_config.get("api_version", "") or "2023-03-15-preview"
         headers["api-key"] = key
         headers["api-version"] = api_version
         request_url = f"{request_url}/chat/completions?api-version={api_version}"
     else:
         request_url = f"{url}/chat/completions"
+        headers["Authorization"] = f"Bearer {key}"
 
     payload = json.dumps(payload)
 
@@ -907,7 +843,6 @@ async def generate_chat_completion(
             url=request_url,
             data=payload,
             headers=headers,
-            cookies=cookies,
             ssl=AIOHTTP_CLIENT_SESSION_SSL,
         )
 
@@ -929,23 +864,27 @@ async def generate_chat_completion(
                 log.error(e)
                 response = await r.text()
 
-            if r.status >= 400:
-                if isinstance(response, (dict, list)):
-                    return JSONResponse(status_code=r.status, content=response)
-                else:
-                    return PlainTextResponse(status_code=r.status, content=response)
-
+            r.raise_for_status()
             return response
     except Exception as e:
         log.exception(e)
 
+        detail = None
+        if isinstance(response, dict):
+            if "error" in response:
+                detail = f"{response['error']['message'] if 'message' in response['error'] else response['error']}"
+        elif isinstance(response, str):
+            detail = response
+
         raise HTTPException(
             status_code=r.status if r else 500,
-            detail="Open WebUI: Server Connection Error",
+            detail=detail if detail else "Open WebUI: Server Connection Error",
         )
     finally:
-        if not streaming:
-            await cleanup_response(r, session)
+        if not streaming and session:
+            if r:
+                r.close()
+            await session.close()
 
 
 async def embeddings(request: Request, form_data: dict, user):
@@ -969,29 +908,33 @@ async def embeddings(request: Request, form_data: dict, user):
     models = request.app.state.OPENAI_MODELS
     if model_id in models:
         idx = models[model_id]["urlIdx"]
-
     url = request.app.state.config.OPENAI_API_BASE_URLS[idx]
     key = request.app.state.config.OPENAI_API_KEYS[idx]
-    api_config = request.app.state.config.OPENAI_API_CONFIGS.get(
-        str(idx),
-        request.app.state.config.OPENAI_API_CONFIGS.get(url, {}),  # Legacy support
-    )
-
     r = None
     session = None
     streaming = False
-
-    headers, cookies = get_headers_and_cookies(request, url, key, api_config, user=user)
     try:
         session = aiohttp.ClientSession(trust_env=True)
         r = await session.request(
             method="POST",
             url=f"{url}/embeddings",
             data=body,
-            headers=headers,
-            cookies=cookies,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                **(
+                    {
+                        "X-OpenWebUI-User-Name": user.name,
+                        "X-OpenWebUI-User-Id": user.id,
+                        "X-OpenWebUI-User-Email": user.email,
+                        "X-OpenWebUI-User-Role": user.role,
+                    }
+                    if ENABLE_FORWARD_USER_INFO_HEADERS and user
+                    else {}
+                ),
+            },
         )
-
+        r.raise_for_status()
         if "text/event-stream" in r.headers.get("Content-Type", ""):
             streaming = True
             return StreamingResponse(
@@ -1003,29 +946,27 @@ async def embeddings(request: Request, form_data: dict, user):
                 ),
             )
         else:
-            try:
-                response_data = await r.json()
-            except Exception:
-                response_data = await r.text()
-
-            if r.status >= 400:
-                if isinstance(response_data, (dict, list)):
-                    return JSONResponse(status_code=r.status, content=response_data)
-                else:
-                    return PlainTextResponse(
-                        status_code=r.status, content=response_data
-                    )
-
+            response_data = await r.json()
             return response_data
     except Exception as e:
         log.exception(e)
+        detail = None
+        if r is not None:
+            try:
+                res = await r.json()
+                if "error" in res:
+                    detail = f"External: {res['error']['message'] if 'message' in res['error'] else res['error']}"
+            except Exception:
+                detail = f"External: {e}"
         raise HTTPException(
             status_code=r.status if r else 500,
-            detail="Open WebUI: Server Connection Error",
+            detail=detail if detail else "Open WebUI: Server Connection Error",
         )
     finally:
-        if not streaming:
-            await cleanup_response(r, session)
+        if not streaming and session:
+            if r:
+                r.close()
+            await session.close()
 
 
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
@@ -1051,21 +992,33 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
     streaming = False
 
     try:
-        headers, cookies = get_headers_and_cookies(
-            request, url, key, api_config, user=user
-        )
+        headers = {
+            "Content-Type": "application/json",
+            **(
+                {
+                    "X-OpenWebUI-User-Name": user.name,
+                    "X-OpenWebUI-User-Id": user.id,
+                    "X-OpenWebUI-User-Email": user.email,
+                    "X-OpenWebUI-User-Role": user.role,
+                }
+                if ENABLE_FORWARD_USER_INFO_HEADERS
+                else {}
+            ),
+        }
 
         if api_config.get("azure", False):
-            api_version = api_config.get("api_version", "2023-03-15-preview")
             headers["api-key"] = key
-            headers["api-version"] = api_version
+            headers["api-version"] = (
+                api_config.get("api_version", "") or "2023-03-15-preview"
+            )
 
             payload = json.loads(body)
-            url, payload = convert_to_azure_payload(url, payload, api_version)
+            url, payload = convert_to_azure_payload(url, payload)
             body = json.dumps(payload).encode()
 
-            request_url = f"{url}/{path}?api-version={api_version}"
+            request_url = f"{url}/{path}?api-version={api_config.get('api_version', '2023-03-15-preview')}"
         else:
+            headers["Authorization"] = f"Bearer {key}"
             request_url = f"{url}/{path}"
 
         session = aiohttp.ClientSession(trust_env=True)
@@ -1074,9 +1027,9 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
             url=request_url,
             data=body,
             headers=headers,
-            cookies=cookies,
             ssl=AIOHTTP_CLIENT_SESSION_SSL,
         )
+        r.raise_for_status()
 
         # Check if response is SSE
         if "text/event-stream" in r.headers.get("Content-Type", ""):
@@ -1090,27 +1043,27 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
                 ),
             )
         else:
-            try:
-                response_data = await r.json()
-            except Exception:
-                response_data = await r.text()
-
-            if r.status >= 400:
-                if isinstance(response_data, (dict, list)):
-                    return JSONResponse(status_code=r.status, content=response_data)
-                else:
-                    return PlainTextResponse(
-                        status_code=r.status, content=response_data
-                    )
-
+            response_data = await r.json()
             return response_data
 
     except Exception as e:
         log.exception(e)
+
+        detail = None
+        if r is not None:
+            try:
+                res = await r.json()
+                log.error(res)
+                if "error" in res:
+                    detail = f"External: {res['error']['message'] if 'message' in res['error'] else res['error']}"
+            except Exception:
+                detail = f"External: {e}"
         raise HTTPException(
             status_code=r.status if r else 500,
-            detail="Open WebUI: Server Connection Error",
+            detail=detail if detail else "Open WebUI: Server Connection Error",
         )
     finally:
-        if not streaming:
-            await cleanup_response(r, session)
+        if not streaming and session:
+            if r:
+                r.close()
+            await session.close()

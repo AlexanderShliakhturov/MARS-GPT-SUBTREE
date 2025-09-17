@@ -31,20 +31,7 @@
 			toolServers: servers
 		});
 
-		let toolServersData = await getToolServersData($settings?.toolServers ?? []);
-		toolServersData = toolServersData.filter((data) => {
-			if (data.error) {
-				toast.error(
-					$i18n.t(`Failed to connect to {{URL}} OpenAPI tool server`, {
-						URL: data?.url
-					})
-				);
-				return false;
-			}
-
-			return true;
-		});
-		toolServers.set(toolServersData);
+		toolServers.set(await getToolServersData($i18n, $settings?.toolServers ?? []));
 	};
 
 	onMount(async () => {

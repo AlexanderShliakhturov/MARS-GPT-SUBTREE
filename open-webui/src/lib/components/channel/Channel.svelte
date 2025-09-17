@@ -246,7 +246,7 @@
 				{/if}
 			</div>
 
-			<div class=" pb-[1rem] px-2.5">
+			<div class=" pb-[1rem]">
 				<MessageInput
 					id="root"
 					{typingUsers}

@@ -7,21 +7,18 @@ import redis
 
 from datetime import datetime
 from pathlib import Path
-from typing import Generic, Union, Optional, TypeVar
+from typing import Generic, Optional, TypeVar
 from urllib.parse import urlparse
 
 import requests
 from pydantic import BaseModel
 from sqlalchemy import JSON, Column, DateTime, Integer, func
-from authlib.integrations.starlette_client import OAuth
-
 
 from open_webui.env import (
     DATA_DIR,
     DATABASE_URL,
     ENV,
     REDIS_URL,
-    REDIS_KEY_PREFIX,
     REDIS_SENTINEL_HOSTS,
     REDIS_SENTINEL_PORT,
     FRONTEND_BUILD_DIR,
@@ -168,19 +165,9 @@ class PersistentConfig(Generic[T]):
         self.config_path = config_path
         self.env_value = env_value
         self.config_value = get_config_value(config_path)
-
         if self.config_value is not None and ENABLE_PERSISTENT_CONFIG:
-            if (
-                self.config_path.startswith("oauth.")
-                and not ENABLE_OAUTH_PERSISTENT_CONFIG
-            ):
-                log.info(
-                    f"Skipping loading of '{env_name}' as OAuth persistent config is disabled"
-                )
-                self.value = env_value
-            else:
-                log.info(f"'{env_name}' loaded from the latest database entry")
-                self.value = self.config_value
+            log.info(f"'{env_name}' loaded from the latest database entry")
+            self.value = self.config_value
         else:
             self.value = env_value
 
@@ -223,27 +210,16 @@ class PersistentConfig(Generic[T]):
 
 class AppConfig:
     _state: dict[str, PersistentConfig]
-    _redis: Union[redis.Redis, redis.cluster.RedisCluster] = None
-    _redis_key_prefix: str
+    _redis: Optional[redis.Redis] = None
 
     def __init__(
-        self,
-        redis_url: Optional[str] = None,
-        redis_sentinels: Optional[list] = [],
-        redis_cluster: Optional[bool] = False,
-        redis_key_prefix: str = "open-webui",
+        self, redis_url: Optional[str] = None, redis_sentinels: Optional[list] = []
     ):
         super().__setattr__("_state", {})
-        super().__setattr__("_redis_key_prefix", redis_key_prefix)
         if redis_url:
             super().__setattr__(
                 "_redis",
-                get_redis_connection(
-                    redis_url,
-                    redis_sentinels,
-                    redis_cluster,
-                    decode_responses=True,
-                ),
+                get_redis_connection(redis_url, redis_sentinels, decode_responses=True),
             )
 
     def __setattr__(self, key, value):
@@ -254,7 +230,7 @@ class AppConfig:
             self._state[key].save()
 
             if self._redis:
-                redis_key = f"{self._redis_key_prefix}:config:{key}"
+                redis_key = f"open-webui:config:{key}"
                 self._redis.set(redis_key, json.dumps(self._state[key].value))
 
     def __getattr__(self, key):
@@ -263,7 +239,7 @@ class AppConfig:
 
         # If Redis is available, check for an updated value
         if self._redis:
-            redis_key = f"{self._redis_key_prefix}:config:{key}"
+            redis_key = f"open-webui:config:{key}"
             redis_value = self._redis.get(redis_key)
 
             if redis_value is not None:
@@ -312,9 +288,6 @@ JWT_EXPIRES_IN = PersistentConfig(
 # OAuth config
 ####################################
 
-ENABLE_OAUTH_PERSISTENT_CONFIG = (
-    os.environ.get("ENABLE_OAUTH_PERSISTENT_CONFIG", "False").lower() == "true"
-)
 
 ENABLE_OAUTH_SIGNUP = PersistentConfig(
     "ENABLE_OAUTH_SIGNUP",
@@ -458,18 +431,6 @@ OAUTH_SCOPES = PersistentConfig(
     os.environ.get("OAUTH_SCOPES", "openid email profile"),
 )
 
-OAUTH_TIMEOUT = PersistentConfig(
-    "OAUTH_TIMEOUT",
-    "oauth.oidc.oauth_timeout",
-    os.environ.get("OAUTH_TIMEOUT", ""),
-)
-
-OAUTH_TOKEN_ENDPOINT_AUTH_METHOD = PersistentConfig(
-    "OAUTH_TOKEN_ENDPOINT_AUTH_METHOD",
-    "oauth.oidc.token_endpoint_auth_method",
-    os.environ.get("OAUTH_TOKEN_ENDPOINT_AUTH_METHOD", None),
-)
-
 OAUTH_CODE_CHALLENGE_METHOD = PersistentConfig(
     "OAUTH_CODE_CHALLENGE_METHOD",
     "oauth.oidc.code_challenge_method",
@@ -480,12 +441,6 @@ OAUTH_PROVIDER_NAME = PersistentConfig(
     "OAUTH_PROVIDER_NAME",
     "oauth.oidc.provider_name",
     os.environ.get("OAUTH_PROVIDER_NAME", "SSO"),
-)
-
-OAUTH_SUB_CLAIM = PersistentConfig(
-    "OAUTH_SUB_CLAIM",
-    "oauth.oidc.sub_claim",
-    os.environ.get("OAUTH_SUB_CLAIM", None),
 )
 
 OAUTH_USERNAME_CLAIM = PersistentConfig(
@@ -510,7 +465,7 @@ OAUTH_EMAIL_CLAIM = PersistentConfig(
 OAUTH_GROUPS_CLAIM = PersistentConfig(
     "OAUTH_GROUPS_CLAIM",
     "oauth.oidc.group_claim",
-    os.environ.get("OAUTH_GROUPS_CLAIM", os.environ.get("OAUTH_GROUP_CLAIM", "groups")),
+    os.environ.get("OAUTH_GROUP_CLAIM", "groups"),
 )
 
 ENABLE_OAUTH_ROLE_MANAGEMENT = PersistentConfig(
@@ -579,20 +534,13 @@ def load_oauth_providers():
     OAUTH_PROVIDERS.clear()
     if GOOGLE_CLIENT_ID.value and GOOGLE_CLIENT_SECRET.value:
 
-        def google_oauth_register(client: OAuth):
+        def google_oauth_register(client):
             client.register(
                 name="google",
                 client_id=GOOGLE_CLIENT_ID.value,
                 client_secret=GOOGLE_CLIENT_SECRET.value,
                 server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-                client_kwargs={
-                    "scope": GOOGLE_OAUTH_SCOPE.value,
-                    **(
-                        {"timeout": int(OAUTH_TIMEOUT.value)}
-                        if OAUTH_TIMEOUT.value
-                        else {}
-                    ),
-                },
+                client_kwargs={"scope": GOOGLE_OAUTH_SCOPE.value},
                 redirect_uri=GOOGLE_REDIRECT_URI.value,
             )
 
@@ -607,7 +555,7 @@ def load_oauth_providers():
         and MICROSOFT_CLIENT_TENANT_ID.value
     ):
 
-        def microsoft_oauth_register(client: OAuth):
+        def microsoft_oauth_register(client):
             client.register(
                 name="microsoft",
                 client_id=MICROSOFT_CLIENT_ID.value,
@@ -615,11 +563,6 @@ def load_oauth_providers():
                 server_metadata_url=f"{MICROSOFT_CLIENT_LOGIN_BASE_URL.value}/{MICROSOFT_CLIENT_TENANT_ID.value}/v2.0/.well-known/openid-configuration?appid={MICROSOFT_CLIENT_ID.value}",
                 client_kwargs={
                     "scope": MICROSOFT_OAUTH_SCOPE.value,
-                    **(
-                        {"timeout": int(OAUTH_TIMEOUT.value)}
-                        if OAUTH_TIMEOUT.value
-                        else {}
-                    ),
                 },
                 redirect_uri=MICROSOFT_REDIRECT_URI.value,
             )
@@ -632,7 +575,7 @@ def load_oauth_providers():
 
     if GITHUB_CLIENT_ID.value and GITHUB_CLIENT_SECRET.value:
 
-        def github_oauth_register(client: OAuth):
+        def github_oauth_register(client):
             client.register(
                 name="github",
                 client_id=GITHUB_CLIENT_ID.value,
@@ -641,14 +584,7 @@ def load_oauth_providers():
                 authorize_url="https://github.com/login/oauth/authorize",
                 api_base_url="https://api.github.com",
                 userinfo_endpoint="https://api.github.com/user",
-                client_kwargs={
-                    "scope": GITHUB_CLIENT_SCOPE.value,
-                    **(
-                        {"timeout": int(OAUTH_TIMEOUT.value)}
-                        if OAUTH_TIMEOUT.value
-                        else {}
-                    ),
-                },
+                client_kwargs={"scope": GITHUB_CLIENT_SCOPE.value},
                 redirect_uri=GITHUB_CLIENT_REDIRECT_URI.value,
             )
 
@@ -660,23 +596,13 @@ def load_oauth_providers():
 
     if (
         OAUTH_CLIENT_ID.value
-        and (OAUTH_CLIENT_SECRET.value or OAUTH_CODE_CHALLENGE_METHOD.value)
+        and OAUTH_CLIENT_SECRET.value
         and OPENID_PROVIDER_URL.value
     ):
 
-        def oidc_oauth_register(client: OAuth):
+        def oidc_oauth_register(client):
             client_kwargs = {
                 "scope": OAUTH_SCOPES.value,
-                **(
-                    {
-                        "token_endpoint_auth_method": OAUTH_TOKEN_ENDPOINT_AUTH_METHOD.value
-                    }
-                    if OAUTH_TOKEN_ENDPOINT_AUTH_METHOD.value
-                    else {}
-                ),
-                **(
-                    {"timeout": int(OAUTH_TIMEOUT.value)} if OAUTH_TIMEOUT.value else {}
-                ),
             }
 
             if (
@@ -705,23 +631,6 @@ def load_oauth_providers():
             "register": oidc_oauth_register,
         }
 
-    configured_providers = []
-    if GOOGLE_CLIENT_ID.value:
-        configured_providers.append("Google")
-    if MICROSOFT_CLIENT_ID.value:
-        configured_providers.append("Microsoft")
-    if GITHUB_CLIENT_ID.value:
-        configured_providers.append("GitHub")
-
-    if configured_providers and not OPENID_PROVIDER_URL.value:
-        provider_list = ", ".join(configured_providers)
-        log.warning(
-            f"⚠️  OAuth providers configured ({provider_list}) but OPENID_PROVIDER_URL not set - logout will not work!"
-        )
-        log.warning(
-            f"Set OPENID_PROVIDER_URL to your OAuth provider's OpenID Connect discovery endpoint to fix logout functionality."
-        )
-
 
 load_oauth_providers()
 
@@ -730,17 +639,6 @@ load_oauth_providers()
 ####################################
 
 STATIC_DIR = Path(os.getenv("STATIC_DIR", OPEN_WEBUI_DIR / "static")).resolve()
-
-try:
-    if STATIC_DIR.exists():
-        for item in STATIC_DIR.iterdir():
-            if item.is_file() or item.is_symlink():
-                try:
-                    item.unlink()
-                except Exception as e:
-                    pass
-except Exception as e:
-    pass
 
 for file_path in (FRONTEND_BUILD_DIR / "static").glob("**/*"):
     if file_path.is_file():
@@ -822,6 +720,12 @@ if CUSTOM_NAME:
 
 
 ####################################
+# LICENSE_KEY
+####################################
+
+LICENSE_KEY = os.environ.get("LICENSE_KEY", "")
+
+####################################
 # STORAGE PROVIDER
 ####################################
 
@@ -871,7 +775,7 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 ENABLE_DIRECT_CONNECTIONS = PersistentConfig(
     "ENABLE_DIRECT_CONNECTIONS",
     "direct.enable",
-    os.environ.get("ENABLE_DIRECT_CONNECTIONS", "False").lower() == "true",
+    os.environ.get("ENABLE_DIRECT_CONNECTIONS", "True").lower() == "true",
 )
 
 ####################################
@@ -953,9 +857,6 @@ GEMINI_API_BASE_URL = os.environ.get("GEMINI_API_BASE_URL", "")
 
 if OPENAI_API_BASE_URL == "":
     OPENAI_API_BASE_URL = "https://api.openai.com/v1"
-else:
-    if OPENAI_API_BASE_URL.endswith("/"):
-        OPENAI_API_BASE_URL = OPENAI_API_BASE_URL[:-1]
 
 OPENAI_API_KEYS = os.environ.get("OPENAI_API_KEYS", "")
 OPENAI_API_KEYS = OPENAI_API_KEYS if OPENAI_API_KEYS != "" else OPENAI_API_KEY
@@ -993,18 +894,6 @@ try:
 except Exception:
     pass
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
-
-
-####################################
-# MODELS
-####################################
-
-ENABLE_BASE_MODELS_CACHE = PersistentConfig(
-    "ENABLE_BASE_MODELS_CACHE",
-    "models.base_models_cache",
-    os.environ.get("ENABLE_BASE_MODELS_CACHE", "False").lower() == "true",
-)
-
 
 ####################################
 # TOOL_SERVERS
@@ -1188,16 +1077,8 @@ USER_PERMISSIONS_CHAT_CONTROLS = (
     os.environ.get("USER_PERMISSIONS_CHAT_CONTROLS", "True").lower() == "true"
 )
 
-USER_PERMISSIONS_CHAT_VALVES = (
-    os.environ.get("USER_PERMISSIONS_CHAT_VALVES", "True").lower() == "true"
-)
-
 USER_PERMISSIONS_CHAT_SYSTEM_PROMPT = (
     os.environ.get("USER_PERMISSIONS_CHAT_SYSTEM_PROMPT", "True").lower() == "true"
-)
-
-USER_PERMISSIONS_CHAT_PARAMS = (
-    os.environ.get("USER_PERMISSIONS_CHAT_PARAMS", "True").lower() == "true"
 )
 
 USER_PERMISSIONS_CHAT_FILE_UPLOAD = (
@@ -1206,23 +1087,6 @@ USER_PERMISSIONS_CHAT_FILE_UPLOAD = (
 
 USER_PERMISSIONS_CHAT_DELETE = (
     os.environ.get("USER_PERMISSIONS_CHAT_DELETE", "True").lower() == "true"
-)
-
-USER_PERMISSIONS_CHAT_DELETE_MESSAGE = (
-    os.environ.get("USER_PERMISSIONS_CHAT_DELETE_MESSAGE", "True").lower() == "true"
-)
-
-USER_PERMISSIONS_CHAT_CONTINUE_RESPONSE = (
-    os.environ.get("USER_PERMISSIONS_CHAT_CONTINUE_RESPONSE", "True").lower() == "true"
-)
-
-USER_PERMISSIONS_CHAT_REGENERATE_RESPONSE = (
-    os.environ.get("USER_PERMISSIONS_CHAT_REGENERATE_RESPONSE", "True").lower()
-    == "true"
-)
-
-USER_PERMISSIONS_CHAT_RATE_RESPONSE = (
-    os.environ.get("USER_PERMISSIONS_CHAT_RATE_RESPONSE", "True").lower() == "true"
 )
 
 USER_PERMISSIONS_CHAT_EDIT = (
@@ -1302,15 +1166,9 @@ DEFAULT_USER_PERMISSIONS = {
     },
     "chat": {
         "controls": USER_PERMISSIONS_CHAT_CONTROLS,
-        "valves": USER_PERMISSIONS_CHAT_VALVES,
         "system_prompt": USER_PERMISSIONS_CHAT_SYSTEM_PROMPT,
-        "params": USER_PERMISSIONS_CHAT_PARAMS,
         "file_upload": USER_PERMISSIONS_CHAT_FILE_UPLOAD,
         "delete": USER_PERMISSIONS_CHAT_DELETE,
-        "delete_message": USER_PERMISSIONS_CHAT_DELETE_MESSAGE,
-        "continue_response": USER_PERMISSIONS_CHAT_CONTINUE_RESPONSE,
-        "regenerate_response": USER_PERMISSIONS_CHAT_REGENERATE_RESPONSE,
-        "rate_response": USER_PERMISSIONS_CHAT_RATE_RESPONSE,
         "edit": USER_PERMISSIONS_CHAT_EDIT,
         "share": USER_PERMISSIONS_CHAT_SHARE,
         "export": USER_PERMISSIONS_CHAT_EXPORT,
@@ -1375,18 +1233,6 @@ WEBHOOK_URL = PersistentConfig(
 
 ENABLE_ADMIN_EXPORT = os.environ.get("ENABLE_ADMIN_EXPORT", "True").lower() == "true"
 
-ENABLE_ADMIN_WORKSPACE_CONTENT_ACCESS = (
-    os.environ.get("ENABLE_ADMIN_WORKSPACE_CONTENT_ACCESS", "True").lower() == "true"
-)
-
-BYPASS_ADMIN_ACCESS_CONTROL = (
-    os.environ.get(
-        "BYPASS_ADMIN_ACCESS_CONTROL",
-        os.environ.get("ENABLE_ADMIN_WORKSPACE_CONTENT_ACCESS", "True"),
-    ).lower()
-    == "true"
-)
-
 ENABLE_ADMIN_CHAT_ACCESS = (
     os.environ.get("ENABLE_ADMIN_CHAT_ACCESS", "True").lower() == "true"
 )
@@ -1425,11 +1271,10 @@ if THREAD_POOL_SIZE is not None and isinstance(THREAD_POOL_SIZE, str):
 def validate_cors_origin(origin):
     parsed_url = urlparse(origin)
 
-    # Check if the scheme is either http or https, or a custom scheme
-    schemes = ["http", "https"] + CORS_ALLOW_CUSTOM_SCHEME
-    if parsed_url.scheme not in schemes:
+    # Check if the scheme is either http or https
+    if parsed_url.scheme not in ["http", "https"]:
         raise ValueError(
-            f"Invalid scheme in CORS_ALLOW_ORIGIN: '{origin}'. Only 'http' and 'https' and CORS_ALLOW_CUSTOM_SCHEME are allowed."
+            f"Invalid scheme in CORS_ALLOW_ORIGIN: '{origin}'. Only 'http' and 'https' are allowed."
         )
 
     # Ensure that the netloc (domain + port) is present, indicating it's a valid URL
@@ -1443,11 +1288,6 @@ def validate_cors_origin(origin):
 # CORS_ALLOW_ORIGIN=http://localhost:5173;http://localhost:8080
 # in your .env file depending on your frontend port, 5173 in this case.
 CORS_ALLOW_ORIGIN = os.environ.get("CORS_ALLOW_ORIGIN", "*").split(";")
-
-# Allows custom URL schemes (e.g., app://) to be used as origins for CORS.
-# Useful for local development or desktop clients with schemes like app:// or other custom protocols.
-# Provide a semicolon-separated list of allowed schemes in the environment variable CORS_ALLOW_CUSTOM_SCHEMES.
-CORS_ALLOW_CUSTOM_SCHEME = os.environ.get("CORS_ALLOW_CUSTOM_SCHEME", "").split(";")
 
 if CORS_ALLOW_ORIGIN == ["*"]:
     log.warning(
@@ -1889,11 +1729,6 @@ CODE_INTERPRETER_JUPYTER_TIMEOUT = PersistentConfig(
     ),
 )
 
-CODE_INTERPRETER_BLOCKED_MODULES = [
-    library.strip()
-    for library in os.environ.get("CODE_INTERPRETER_BLOCKED_MODULES", "").split(",")
-    if library.strip()
-]
 
 DEFAULT_CODE_INTERPRETER_PROMPT = """
 #### Tools Available
@@ -1959,14 +1794,11 @@ MILVUS_IVF_FLAT_NLIST = int(os.environ.get("MILVUS_IVF_FLAT_NLIST", "128"))
 QDRANT_URI = os.environ.get("QDRANT_URI", None)
 QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", None)
 QDRANT_ON_DISK = os.environ.get("QDRANT_ON_DISK", "false").lower() == "true"
-QDRANT_PREFER_GRPC = os.environ.get("QDRANT_PREFER_GRPC", "false").lower() == "true"
+QDRANT_PREFER_GRPC = os.environ.get("QDRANT_PREFER_GRPC", "False").lower() == "true"
 QDRANT_GRPC_PORT = int(os.environ.get("QDRANT_GRPC_PORT", "6334"))
-QDRANT_TIMEOUT = int(os.environ.get("QDRANT_TIMEOUT", "5"))
-QDRANT_HNSW_M = int(os.environ.get("QDRANT_HNSW_M", "16"))
 ENABLE_QDRANT_MULTITENANCY_MODE = (
-    os.environ.get("ENABLE_QDRANT_MULTITENANCY_MODE", "true").lower() == "true"
+    os.environ.get("ENABLE_QDRANT_MULTITENANCY_MODE", "false").lower() == "true"
 )
-QDRANT_COLLECTION_PREFIX = os.environ.get("QDRANT_COLLECTION_PREFIX", "open-webui")
 
 # OpenSearch
 OPENSEARCH_URI = os.environ.get("OPENSEARCH_URI", "https://localhost:9200")
@@ -1998,54 +1830,12 @@ PGVECTOR_INITIALIZE_MAX_VECTOR_LENGTH = int(
     os.environ.get("PGVECTOR_INITIALIZE_MAX_VECTOR_LENGTH", "1536")
 )
 
-PGVECTOR_CREATE_EXTENSION = (
-    os.getenv("PGVECTOR_CREATE_EXTENSION", "true").lower() == "true"
-)
 PGVECTOR_PGCRYPTO = os.getenv("PGVECTOR_PGCRYPTO", "false").lower() == "true"
 PGVECTOR_PGCRYPTO_KEY = os.getenv("PGVECTOR_PGCRYPTO_KEY", None)
 if PGVECTOR_PGCRYPTO and not PGVECTOR_PGCRYPTO_KEY:
     raise ValueError(
         "PGVECTOR_PGCRYPTO is enabled but PGVECTOR_PGCRYPTO_KEY is not set. Please provide a valid key."
     )
-
-
-PGVECTOR_POOL_SIZE = os.environ.get("PGVECTOR_POOL_SIZE", None)
-
-if PGVECTOR_POOL_SIZE != None:
-    try:
-        PGVECTOR_POOL_SIZE = int(PGVECTOR_POOL_SIZE)
-    except Exception:
-        PGVECTOR_POOL_SIZE = None
-
-PGVECTOR_POOL_MAX_OVERFLOW = os.environ.get("PGVECTOR_POOL_MAX_OVERFLOW", 0)
-
-if PGVECTOR_POOL_MAX_OVERFLOW == "":
-    PGVECTOR_POOL_MAX_OVERFLOW = 0
-else:
-    try:
-        PGVECTOR_POOL_MAX_OVERFLOW = int(PGVECTOR_POOL_MAX_OVERFLOW)
-    except Exception:
-        PGVECTOR_POOL_MAX_OVERFLOW = 0
-
-PGVECTOR_POOL_TIMEOUT = os.environ.get("PGVECTOR_POOL_TIMEOUT", 30)
-
-if PGVECTOR_POOL_TIMEOUT == "":
-    PGVECTOR_POOL_TIMEOUT = 30
-else:
-    try:
-        PGVECTOR_POOL_TIMEOUT = int(PGVECTOR_POOL_TIMEOUT)
-    except Exception:
-        PGVECTOR_POOL_TIMEOUT = 30
-
-PGVECTOR_POOL_RECYCLE = os.environ.get("PGVECTOR_POOL_RECYCLE", 3600)
-
-if PGVECTOR_POOL_RECYCLE == "":
-    PGVECTOR_POOL_RECYCLE = 3600
-else:
-    try:
-        PGVECTOR_POOL_RECYCLE = int(PGVECTOR_POOL_RECYCLE)
-    except Exception:
-        PGVECTOR_POOL_RECYCLE = 3600
 
 # Pinecone
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY", None)
@@ -2054,37 +1844,6 @@ PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "open-webui-index")
 PINECONE_DIMENSION = int(os.getenv("PINECONE_DIMENSION", 1536))  # or 3072, 1024, 768
 PINECONE_METRIC = os.getenv("PINECONE_METRIC", "cosine")
 PINECONE_CLOUD = os.getenv("PINECONE_CLOUD", "aws")  # or "gcp" or "azure"
-
-# ORACLE23AI (Oracle23ai Vector Search)
-
-ORACLE_DB_USE_WALLET = os.environ.get("ORACLE_DB_USE_WALLET", "false").lower() == "true"
-ORACLE_DB_USER = os.environ.get("ORACLE_DB_USER", None)  #
-ORACLE_DB_PASSWORD = os.environ.get("ORACLE_DB_PASSWORD", None)  #
-ORACLE_DB_DSN = os.environ.get("ORACLE_DB_DSN", None)  #
-ORACLE_WALLET_DIR = os.environ.get("ORACLE_WALLET_DIR", None)
-ORACLE_WALLET_PASSWORD = os.environ.get("ORACLE_WALLET_PASSWORD", None)
-ORACLE_VECTOR_LENGTH = os.environ.get("ORACLE_VECTOR_LENGTH", 768)
-
-ORACLE_DB_POOL_MIN = int(os.environ.get("ORACLE_DB_POOL_MIN", 2))
-ORACLE_DB_POOL_MAX = int(os.environ.get("ORACLE_DB_POOL_MAX", 10))
-ORACLE_DB_POOL_INCREMENT = int(os.environ.get("ORACLE_DB_POOL_INCREMENT", 1))
-
-
-if VECTOR_DB == "oracle23ai":
-    if not ORACLE_DB_USER or not ORACLE_DB_PASSWORD or not ORACLE_DB_DSN:
-        raise ValueError(
-            "Oracle23ai requires setting ORACLE_DB_USER, ORACLE_DB_PASSWORD, and ORACLE_DB_DSN."
-        )
-    if ORACLE_DB_USE_WALLET and (not ORACLE_WALLET_DIR or not ORACLE_WALLET_PASSWORD):
-        raise ValueError(
-            "Oracle23ai requires setting ORACLE_WALLET_DIR and ORACLE_WALLET_PASSWORD when using wallet authentication."
-        )
-
-log.info(f"VECTOR_DB: {VECTOR_DB}")
-
-# S3 Vector
-S3_VECTOR_BUCKET_NAME = os.environ.get("S3_VECTOR_BUCKET_NAME", None)
-S3_VECTOR_REGION = os.environ.get("S3_VECTOR_REGION", None)
 
 ####################################
 # Information Retrieval (RAG)
@@ -2147,16 +1906,10 @@ DATALAB_MARKER_API_KEY = PersistentConfig(
     os.environ.get("DATALAB_MARKER_API_KEY", ""),
 )
 
-DATALAB_MARKER_API_BASE_URL = PersistentConfig(
-    "DATALAB_MARKER_API_BASE_URL",
-    "rag.datalab_marker_api_base_url",
-    os.environ.get("DATALAB_MARKER_API_BASE_URL", ""),
-)
-
-DATALAB_MARKER_ADDITIONAL_CONFIG = PersistentConfig(
-    "DATALAB_MARKER_ADDITIONAL_CONFIG",
-    "rag.datalab_marker_additional_config",
-    os.environ.get("DATALAB_MARKER_ADDITIONAL_CONFIG", ""),
+DATALAB_MARKER_LANGS = PersistentConfig(
+    "DATALAB_MARKER_LANGS",
+    "rag.datalab_marker_langs",
+    os.environ.get("DATALAB_MARKER_LANGS", ""),
 )
 
 DATALAB_MARKER_USE_LLM = PersistentConfig(
@@ -2196,12 +1949,6 @@ DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION = PersistentConfig(
     == "true",
 )
 
-DATALAB_MARKER_FORMAT_LINES = PersistentConfig(
-    "DATALAB_MARKER_FORMAT_LINES",
-    "rag.datalab_marker_format_lines",
-    os.environ.get("DATALAB_MARKER_FORMAT_LINES", "false").lower() == "true",
-)
-
 DATALAB_MARKER_OUTPUT_FORMAT = PersistentConfig(
     "DATALAB_MARKER_OUTPUT_FORMAT",
     "rag.datalab_marker_output_format",
@@ -2232,18 +1979,6 @@ DOCLING_SERVER_URL = PersistentConfig(
     os.getenv("DOCLING_SERVER_URL", "http://docling:5001"),
 )
 
-DOCLING_DO_OCR = PersistentConfig(
-    "DOCLING_DO_OCR",
-    "rag.docling_do_ocr",
-    os.getenv("DOCLING_DO_OCR", "True").lower() == "true",
-)
-
-DOCLING_FORCE_OCR = PersistentConfig(
-    "DOCLING_FORCE_OCR",
-    "rag.docling_force_ocr",
-    os.getenv("DOCLING_FORCE_OCR", "False").lower() == "true",
-)
-
 DOCLING_OCR_ENGINE = PersistentConfig(
     "DOCLING_OCR_ENGINE",
     "rag.docling_ocr_engine",
@@ -2254,24 +1989,6 @@ DOCLING_OCR_LANG = PersistentConfig(
     "DOCLING_OCR_LANG",
     "rag.docling_ocr_lang",
     os.getenv("DOCLING_OCR_LANG", "eng,fra,deu,spa"),
-)
-
-DOCLING_PDF_BACKEND = PersistentConfig(
-    "DOCLING_PDF_BACKEND",
-    "rag.docling_pdf_backend",
-    os.getenv("DOCLING_PDF_BACKEND", "dlparse_v4"),
-)
-
-DOCLING_TABLE_MODE = PersistentConfig(
-    "DOCLING_TABLE_MODE",
-    "rag.docling_table_mode",
-    os.getenv("DOCLING_TABLE_MODE", "accurate"),
-)
-
-DOCLING_PIPELINE = PersistentConfig(
-    "DOCLING_PIPELINE",
-    "rag.docling_pipeline",
-    os.getenv("DOCLING_PIPELINE", "standard"),
 )
 
 DOCLING_DO_PICTURE_DESCRIPTION = PersistentConfig(
@@ -2680,14 +2397,6 @@ WEB_LOADER_ENGINE = PersistentConfig(
     "rag.web.loader.engine",
     os.environ.get("WEB_LOADER_ENGINE", ""),
 )
-
-
-WEB_LOADER_CONCURRENT_REQUESTS = PersistentConfig(
-    "WEB_LOADER_CONCURRENT_REQUESTS",
-    "rag.web.loader.concurrent_requests",
-    int(os.getenv("WEB_LOADER_CONCURRENT_REQUESTS", "10")),
-)
-
 
 ENABLE_WEB_LOADER_SSL_VERIFICATION = PersistentConfig(
     "ENABLE_WEB_LOADER_SSL_VERIFICATION",
@@ -3130,12 +2839,6 @@ IMAGES_OPENAI_API_BASE_URL = PersistentConfig(
     "image_generation.openai.api_base_url",
     os.getenv("IMAGES_OPENAI_API_BASE_URL", OPENAI_API_BASE_URL),
 )
-IMAGES_OPENAI_API_VERSION = PersistentConfig(
-    "IMAGES_OPENAI_API_VERSION",
-    "image_generation.openai.api_version",
-    os.getenv("IMAGES_OPENAI_API_VERSION", ""),
-)
-
 IMAGES_OPENAI_API_KEY = PersistentConfig(
     "IMAGES_OPENAI_API_KEY",
     "image_generation.openai.api_key",

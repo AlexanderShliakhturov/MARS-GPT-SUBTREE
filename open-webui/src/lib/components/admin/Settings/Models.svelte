@@ -14,8 +14,6 @@
 		toggleModelById,
 		updateModelById
 	} from '$lib/apis/models';
-	import { copyToClipboard } from '$lib/utils';
-	import { page } from '$app/stores';
 
 	import { getModels } from '$lib/apis';
 	import Search from '$lib/components/icons/Search.svelte';
@@ -36,7 +34,7 @@
 	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
 	import EyeSlash from '$lib/components/icons/EyeSlash.svelte';
 	import Eye from '$lib/components/icons/Eye.svelte';
-	import { WEBUI_BASE_URL } from '$lib/constants';
+	import { copyToClipboard } from '$lib/utils';
 
 	let shiftKey = false;
 
@@ -63,7 +61,7 @@
 				// 	return (b.is_active ?? true) - (a.is_active ?? true);
 				// }
 				// If both models' active states are the same, sort alphabetically
-				return (a?.name ?? a?.id ?? '').localeCompare(b?.name ?? b?.id ?? '');
+				return a.name.localeCompare(b.name);
 			});
 	}
 
@@ -207,11 +205,6 @@
 
 	onMount(async () => {
 		await init();
-		const id = $page.url.searchParams.get('id');
-
-		if (id) {
-			selectedModelId = id;
-		}
 
 		const onKeyDown = (event) => {
 			if (event.key === 'Shift') {
@@ -333,7 +326,7 @@
 										: 'opacity-50 dark:opacity-50'} "
 								>
 									<img
-										src={model?.meta?.profile_image_url ?? `${WEBUI_BASE_URL}/static/favicon.png`}
+										src={model?.meta?.profile_image_url ?? '/static/favicon.png'}
 										alt="modelfile profile"
 										class=" rounded-full w-full h-auto object-cover"
 									/>
@@ -570,6 +563,6 @@
 	{/if}
 {:else}
 	<div class=" h-full w-full flex justify-center items-center">
-		<Spinner className="size-5" />
+		<Spinner />
 	</div>
 {/if}
