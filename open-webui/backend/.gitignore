@@ -9,4 +9,5 @@ Pipfile
 !/data
 /data/*
 /open_webui/data/*
+/open-webui
 .webui_secret_key

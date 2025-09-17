@@ -192,7 +192,7 @@
 					const res = await userSignOut();
 					user.set(null);
 					localStorage.removeItem('token');
-
+					localStorage.removeItem('disclaimer_accepted');
 					location.href = res?.redirect_url ?? '/auth';
 					show = false;
 				}}

@@ -71,6 +71,8 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 class SessionUserResponse(Token, UserResponse):
     expires_at: Optional[int] = None
     permissions: Optional[dict] = None
+    disclaimer_accepted: Optional[bool] = None
+    disclaimer_accepted_at: Optional[str] = None
 
 
 @router.get("/", response_model=SessionUserResponse)
@@ -544,6 +546,8 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
             "role": user.role,
             "profile_image_url": user.profile_image_url,
             "permissions": user_permissions,
+            "disclaimer_accepted": True,
+            "disclaimer_accepted_at": "2025-02-12"
         }
     else:
         raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
