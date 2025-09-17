@@ -35,7 +35,10 @@ from fastapi import (
     status,
     applications,
     BackgroundTasks,
+
 )
+
+from fastapi.responses import HTMLResponse
 
 from fastapi.openapi.docs import get_swagger_ui_html
 
@@ -1752,6 +1755,17 @@ async def healthcheck_with_db():
     Session.execute(text("SELECT 1;")).all()
     return {"status": True}
 
+@app.get('/test')
+async def test():
+    return {"test": True}
+
+@app.get("/rules")
+async def get_rules():
+    file_path = os.path.join(STATIC_DIR, "rules.html")
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="text/html")
+    else:
+        return {"error": "Файл rules.html не найден"}
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

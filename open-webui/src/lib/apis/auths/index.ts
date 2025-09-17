@@ -326,6 +326,7 @@ export const userSignUp = async (
 
 export const userSignOut = async () => {
 	let error = null;
+	localStorage.removeItem('disclaimer_accepted');
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/auths/signout`, {
 		method: 'GET',

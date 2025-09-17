@@ -5,6 +5,7 @@
 	import fileSaver from 'file-saver';
 	const { saveAs } = fileSaver;
 	import mermaid from 'mermaid';
+	import Footer from '$lib/components/layout/Footer/Footer.svelte';
 
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -271,7 +272,7 @@
 {#if $user}
 	<div class="app relative">
 		<div
-			class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 h-screen max-h-[100dvh] overflow-auto flex flex-row justify-end"
+			class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 h-screen max-h-[100dvh] overflow-auto flex flex-row"
 		>
 			{#if !['user', 'admin'].includes($user?.role)}
 				<AccountPending />

@@ -32,6 +32,10 @@ from open_webui.env import (
 from open_webui.internal.db import Base, get_db
 from open_webui.utils.redis import get_redis_connection
 
+# __import__('pysqlite3')
+# import sys
+# sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
 
 class EndpointFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:

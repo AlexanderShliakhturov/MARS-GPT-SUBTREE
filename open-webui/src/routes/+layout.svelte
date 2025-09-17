@@ -49,6 +49,7 @@
 
 	import { beforeNavigate } from '$app/navigation';
 	import { updated } from '$app/state';
+	import Footer from '$lib/components/layout/Footer/Footer.svelte';
 
 	// handle frontend updates (https://svelte.dev/docs/kit/configuration#version)
 	beforeNavigate(({ willUnload, to }) => {
@@ -654,18 +655,33 @@
 </svelte:head>
 
 {#if loaded}
-	{#if $isApp}
-		<div class="flex flex-row h-screen">
-			<AppSidebar />
-
-			<div class="w-full flex-1 max-w-[calc(100%-4.5rem)]">
-				<slot />
-			</div>
-		</div>
-	{:else}
-		<slot />
-	{/if}
+  {#if $isApp}
+    <div class="flex flex-row min-h-screen">
+      <AppSidebar />
+      <div class="w-full flex flex-col max-w-[calc(100%-4.5rem)]">
+        <main class="h-[95vh] overflow-auto">
+          <slot />
+        </main>
+        <Footer />
+      </div>
+    </div>
+  {:else}
+    <div class="flex flex-col min-h-screen">
+      <main class="h-[95vh] overflow-auto">
+        <slot />
+      </main>
+      <Footer />
+    </div>
+  {/if}
 {/if}
+
+<style>
+:global(div.h-screen) {
+	height: auto !important;
+	min-height: 95vh;
+}
+</style>
+
 
 <Toaster
 	theme={$theme.includes('dark')
