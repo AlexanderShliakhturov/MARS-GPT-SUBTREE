@@ -72,6 +72,12 @@
 					autocomplete="off"
 				/>
 			</div>
+
+			<SensitiveInput
+				inputClassName="bg-transparent w-full"
+				placeholder={$i18n.t('API Key')}
+				bind:value={key}
+			/>
 		</div>
 	</Tooltip>
 

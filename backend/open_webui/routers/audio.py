@@ -4,6 +4,7 @@ import logging
 import os
 import uuid
 from functools import lru_cache
+from pathlib import Path
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +15,6 @@ import aiohttp
 import aiofiles
 import requests
 import mimetypes
-from urllib.parse import urljoin, quote
 
 from fastapi import (
     Depends,
@@ -327,7 +327,6 @@ async def speech(request: Request, user=Depends(get_verified_user)):
         log.exception(e)
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    r = None
     if request.app.state.config.TTS_ENGINE == "openai":
         payload["model"] = request.app.state.config.TTS_MODEL
 
@@ -336,7 +335,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             async with aiohttp.ClientSession(
                 timeout=timeout, trust_env=True
             ) as session:
-                r = await session.post(
+                async with session.post(
                     url=f"{request.app.state.config.TTS_OPENAI_API_BASE_URL}/audio/speech",
                     json=payload,
                     headers={
@@ -344,7 +343,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
                         "Authorization": f"Bearer {request.app.state.config.TTS_OPENAI_API_KEY}",
                         **(
                             {
-                                "X-OpenWebUI-User-Name": quote(user.name, safe=" "),
+                                "X-OpenWebUI-User-Name": user.name,
                                 "X-OpenWebUI-User-Id": user.id,
                                 "X-OpenWebUI-User-Email": user.email,
                                 "X-OpenWebUI-User-Role": user.role,
@@ -354,15 +353,14 @@ async def speech(request: Request, user=Depends(get_verified_user)):
                         ),
                     },
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
-                )
+                ) as r:
+                    r.raise_for_status()
 
-                r.raise_for_status()
+                    async with aiofiles.open(file_path, "wb") as f:
+                        await f.write(await r.read())
 
-                async with aiofiles.open(file_path, "wb") as f:
-                    await f.write(await r.read())
-
-                async with aiofiles.open(file_body_path, "w") as f:
-                    await f.write(json.dumps(payload))
+                    async with aiofiles.open(file_body_path, "w") as f:
+                        await f.write(json.dumps(payload))
 
             return FileResponse(file_path)
 
@@ -370,22 +368,18 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             log.exception(e)
             detail = None
 
-            status_code = 500
-            detail = f"Open WebUI: Server Connection Error"
-
-            if r is not None:
-                status_code = r.status
-
-                try:
+            try:
+                if r.status != 200:
                     res = await r.json()
+
                     if "error" in res:
-                        detail = f"External: {res['error']}"
-                except Exception:
-                    detail = f"External: {e}"
+                        detail = f"External: {res['error'].get('message', '')}"
+            except Exception:
+                detail = f"External: {e}"
 
             raise HTTPException(
-                status_code=status_code,
-                detail=detail,
+                status_code=getattr(r, "status", 500) if r else 500,
+                detail=detail if detail else "Open WebUI: Server Connection Error",
             )
 
     elif request.app.state.config.TTS_ENGINE == "elevenlabs":
@@ -549,11 +543,6 @@ def transcription_handler(request, file_path, metadata):
 
     metadata = metadata or {}
 
-    languages = [
-        metadata.get("language", None) if WHISPER_LANGUAGE == "" else WHISPER_LANGUAGE,
-        None,  # Always fallback to None in case transcription fails
-    ]
-
     if request.app.state.config.STT_ENGINE == "":
         if request.app.state.faster_whisper_model is None:
             request.app.state.faster_whisper_model = set_faster_whisper_model(
@@ -565,7 +554,7 @@ def transcription_handler(request, file_path, metadata):
             file_path,
             beam_size=5,
             vad_filter=request.app.state.config.WHISPER_VAD_FILTER,
-            language=languages[0],
+            language=metadata.get("language") or WHISPER_LANGUAGE,
         )
         log.info(
             "Detected language '%s' with probability %f"
@@ -585,26 +574,21 @@ def transcription_handler(request, file_path, metadata):
     elif request.app.state.config.STT_ENGINE == "openai":
         r = None
         try:
-            for language in languages:
-                payload = {
+            r = requests.post(
+                url=f"{request.app.state.config.STT_OPENAI_API_BASE_URL}/audio/transcriptions",
+                headers={
+                    "Authorization": f"Bearer {request.app.state.config.STT_OPENAI_API_KEY}"
+                },
+                files={"file": (filename, open(file_path, "rb"))},
+                data={
                     "model": request.app.state.config.STT_MODEL,
-                }
-
-                if language:
-                    payload["language"] = language
-
-                r = requests.post(
-                    url=f"{request.app.state.config.STT_OPENAI_API_BASE_URL}/audio/transcriptions",
-                    headers={
-                        "Authorization": f"Bearer {request.app.state.config.STT_OPENAI_API_KEY}"
-                    },
-                    files={"file": (filename, open(file_path, "rb"))},
-                    data=payload,
-                )
-
-                if r.status_code == 200:
-                    # Successful transcription
-                    break
+                    **(
+                        {"language": metadata.get("language")}
+                        if metadata.get("language")
+                        else {}
+                    ),
+                },
+            )
 
             r.raise_for_status()
             data = r.json()
@@ -646,26 +630,18 @@ def transcription_handler(request, file_path, metadata):
                 "Content-Type": mime,
             }
 
-            for language in languages:
-                params = {}
-                if request.app.state.config.STT_MODEL:
-                    params["model"] = request.app.state.config.STT_MODEL
+            # Add model if specified
+            params = {}
+            if request.app.state.config.STT_MODEL:
+                params["model"] = request.app.state.config.STT_MODEL
 
-                if language:
-                    params["language"] = language
-
-                # Make request to Deepgram API
-                r = requests.post(
-                    "https://api.deepgram.com/v1/listen?smart_format=true",
-                    headers=headers,
-                    params=params,
-                    data=file_data,
-                )
-
-                if r.status_code == 200:
-                    # Successful transcription
-                    break
-
+            # Make request to Deepgram API
+            r = requests.post(
+                "https://api.deepgram.com/v1/listen?smart_format=true",
+                headers=headers,
+                params=params,
+                data=file_data,
+            )
             r.raise_for_status()
             response_data = r.json()
 
@@ -943,18 +919,14 @@ def transcription(
 ):
     log.info(f"file.content_type: {file.content_type}")
 
-    stt_supported_content_types = getattr(
-        request.app.state.config, "STT_SUPPORTED_CONTENT_TYPES", []
-    )
+    supported_content_types = request.app.state.config.STT_SUPPORTED_CONTENT_TYPES or [
+        "audio/*",
+        "video/webm",
+    ]
 
     if not any(
         fnmatch(file.content_type, content_type)
-        for content_type in (
-            stt_supported_content_types
-            if stt_supported_content_types
-            and any(t.strip() for t in stt_supported_content_types)
-            else ["audio/*", "video/webm"]
-        )
+        for content_type in supported_content_types
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

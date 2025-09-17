@@ -4,7 +4,6 @@ import uuid
 from typing import Optional
 
 from open_webui.internal.db import Base, get_db
-from open_webui.models.groups import Groups
 from open_webui.utils.access_control import has_access
 from open_webui.models.users import Users, UserResponse
 
@@ -63,13 +62,6 @@ class NoteForm(BaseModel):
     access_control: Optional[dict] = None
 
 
-class NoteUpdateForm(BaseModel):
-    title: Optional[str] = None
-    data: Optional[dict] = None
-    meta: Optional[dict] = None
-    access_control: Optional[dict] = None
-
-
 class NoteUserResponse(NoteModel):
     user: Optional[UserResponse] = None
 
@@ -106,12 +98,11 @@ class NoteTable:
         self, user_id: str, permission: str = "write"
     ) -> list[NoteModel]:
         notes = self.get_notes()
-        user_group_ids = {group.id for group in Groups.get_groups_by_member_id(user_id)}
         return [
             note
             for note in notes
             if note.user_id == user_id
-            or has_access(user_id, permission, note.access_control, user_group_ids)
+            or has_access(user_id, permission, note.access_control)
         ]
 
     def get_note_by_id(self, id: str) -> Optional[NoteModel]:
@@ -119,26 +110,16 @@ class NoteTable:
             note = db.query(Note).filter(Note.id == id).first()
             return NoteModel.model_validate(note) if note else None
 
-    def update_note_by_id(
-        self, id: str, form_data: NoteUpdateForm
-    ) -> Optional[NoteModel]:
+    def update_note_by_id(self, id: str, form_data: NoteForm) -> Optional[NoteModel]:
         with get_db() as db:
             note = db.query(Note).filter(Note.id == id).first()
             if not note:
                 return None
 
-            form_data = form_data.model_dump(exclude_unset=True)
-
-            if "title" in form_data:
-                note.title = form_data["title"]
-            if "data" in form_data:
-                note.data = {**note.data, **form_data["data"]}
-            if "meta" in form_data:
-                note.meta = {**note.meta, **form_data["meta"]}
-
-            if "access_control" in form_data:
-                note.access_control = form_data["access_control"]
-
+            note.title = form_data.title
+            note.data = form_data.data
+            note.meta = form_data.meta
+            note.access_control = form_data.access_control
             note.updated_at = int(time.time_ns())
 
             db.commit()

@@ -49,7 +49,7 @@
 	{#each selectedModels as selectedModel, selectedModelIdx}
 		<div class="flex w-full max-w-fit">
 			<div class="overflow-hidden w-full">
-				<div class="max-w-full {($settings?.highContrastMode ?? false) ? 'm-1' : 'mr-1'}">
+				<div class="mr-1 max-w-full">
 					<Selector
 						id={`${selectedModelIdx}`}
 						placeholder={$i18n.t('Select a model')}
@@ -58,6 +58,10 @@
 							label: model.name,
 							model: model
 						}))}
+						showTemporaryChatControl={$user?.role === 'user'
+							? ($user?.permissions?.chat?.temporary ?? true) &&
+								!($user?.permissions?.chat?.temporary_enforced ?? false)
+							: true}
 						{pinModelHandler}
 						bind:value={selectedModel}
 					/>

@@ -49,7 +49,6 @@
 
 	import { beforeNavigate } from '$app/navigation';
 	import { updated } from '$app/state';
-	import Spinner from '$lib/components/common/Spinner.svelte';
 
 	// handle frontend updates (https://svelte.dev/docs/kit/configuration#version)
 	beforeNavigate(({ willUnload, to }) => {
@@ -64,8 +63,6 @@
 
 	let loaded = false;
 	let tokenTimer = null;
-
-	let showRefresh = false;
 
 	const BREAKPOINT = 768;
 
@@ -88,12 +85,6 @@
 
 		_socket.on('connect', () => {
 			console.log('connected', _socket.id);
-			if (localStorage.getItem('token')) {
-				// Emit user-join event with auth token
-				_socket.emit('user-join', { auth: { token: localStorage.token } });
-			} else {
-				console.warn('No token found in localStorage, user-join event not emitted');
-			}
 		});
 
 		_socket.on('reconnect_attempt', (attempt) => {
@@ -119,19 +110,18 @@
 
 		let executing = true;
 		let packages = [
-			/\bimport\s+requests\b|\bfrom\s+requests\b/.test(code) ? 'requests' : null,
-			/\bimport\s+bs4\b|\bfrom\s+bs4\b/.test(code) ? 'beautifulsoup4' : null,
-			/\bimport\s+numpy\b|\bfrom\s+numpy\b/.test(code) ? 'numpy' : null,
-			/\bimport\s+pandas\b|\bfrom\s+pandas\b/.test(code) ? 'pandas' : null,
-			/\bimport\s+matplotlib\b|\bfrom\s+matplotlib\b/.test(code) ? 'matplotlib' : null,
-			/\bimport\s+seaborn\b|\bfrom\s+seaborn\b/.test(code) ? 'seaborn' : null,
-			/\bimport\s+sklearn\b|\bfrom\s+sklearn\b/.test(code) ? 'scikit-learn' : null,
-			/\bimport\s+scipy\b|\bfrom\s+scipy\b/.test(code) ? 'scipy' : null,
-			/\bimport\s+re\b|\bfrom\s+re\b/.test(code) ? 'regex' : null,
-			/\bimport\s+seaborn\b|\bfrom\s+seaborn\b/.test(code) ? 'seaborn' : null,
-			/\bimport\s+sympy\b|\bfrom\s+sympy\b/.test(code) ? 'sympy' : null,
-			/\bimport\s+tiktoken\b|\bfrom\s+tiktoken\b/.test(code) ? 'tiktoken' : null,
-			/\bimport\s+pytz\b|\bfrom\s+pytz\b/.test(code) ? 'pytz' : null
+			code.includes('requests') ? 'requests' : null,
+			code.includes('bs4') ? 'beautifulsoup4' : null,
+			code.includes('numpy') ? 'numpy' : null,
+			code.includes('pandas') ? 'pandas' : null,
+			code.includes('matplotlib') ? 'matplotlib' : null,
+			code.includes('sklearn') ? 'scikit-learn' : null,
+			code.includes('scipy') ? 'scipy' : null,
+			code.includes('re') ? 'regex' : null,
+			code.includes('seaborn') ? 'seaborn' : null,
+			code.includes('sympy') ? 'sympy' : null,
+			code.includes('tiktoken') ? 'tiktoken' : null,
+			code.includes('pytz') ? 'pytz' : null
 		].filter(Boolean);
 
 		const pyodideWorker = new PyodideWorker();
@@ -222,19 +212,8 @@
 
 		if (toolServer) {
 			console.log(toolServer);
-
-			let toolServerToken = null;
-			const auth_type = toolServer?.auth_type ?? 'bearer';
-			if (auth_type === 'bearer') {
-				toolServerToken = toolServer?.key;
-			} else if (auth_type === 'none') {
-				// No authentication
-			} else if (auth_type === 'session') {
-				toolServerToken = localStorage.token;
-			}
-
 			const res = await executeToolServer(
-				toolServerToken,
+				(toolServer?.auth_type ?? 'bearer') === 'bearer' ? toolServer?.key : localStorage.token,
 				toolServer.url,
 				data?.name,
 				data?.params,
@@ -483,36 +462,6 @@
 	};
 
 	onMount(async () => {
-		let touchstartY = 0;
-
-		function isNavOrDescendant(el) {
-			const nav = document.querySelector('nav'); // change selector if needed
-			return nav && (el === nav || nav.contains(el));
-		}
-
-		document.addEventListener('touchstart', (e) => {
-			if (!isNavOrDescendant(e.target)) return;
-			touchstartY = e.touches[0].clientY;
-		});
-
-		document.addEventListener('touchmove', (e) => {
-			if (!isNavOrDescendant(e.target)) return;
-			const touchY = e.touches[0].clientY;
-			const touchDiff = touchY - touchstartY;
-			if (touchDiff > 50 && window.scrollY === 0) {
-				showRefresh = true;
-				e.preventDefault();
-			}
-		});
-
-		document.addEventListener('touchend', (e) => {
-			if (!isNavOrDescendant(e.target)) return;
-			if (showRefresh) {
-				showRefresh = false;
-				location.reload();
-			}
-		});
-
 		if (typeof window !== 'undefined' && window.applyTheme) {
 			window.applyTheme();
 		}
@@ -633,6 +582,9 @@
 					});
 
 					if (sessionUser) {
+						// Save Session User to Store
+						$socket.emit('user-join', { auth: { token: sessionUser.token } });
+
 						await user.set(sessionUser);
 						await config.set(await getBackendConfig());
 					} else {
@@ -694,13 +646,12 @@
 <svelte:head>
 	<title>{$WEBUI_NAME}</title>
 	<link crossorigin="anonymous" rel="icon" href="{WEBUI_BASE_URL}/static/favicon.png" />
-</svelte:head>
 
-{#if showRefresh}
-	<div class=" py-5">
-		<Spinner className="size-5" />
-	</div>
-{/if}
+	<!-- rosepine themes have been disabled as it's not up to date with our latest version. -->
+	<!-- feel free to make a PR to fix if anyone wants to see it return -->
+	<!-- <link rel="stylesheet" type="text/css" href="/themes/rosepine.css" />
+	<link rel="stylesheet" type="text/css" href="/themes/rosepine-dawn.css" /> -->
+</svelte:head>
 
 {#if loaded}
 	{#if $isApp}

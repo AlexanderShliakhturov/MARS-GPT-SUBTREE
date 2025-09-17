@@ -15,8 +15,6 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Tags from './common/Tags.svelte';
-	import Spinner from '$lib/components/common/Spinner.svelte';
-	import XMark from '$lib/components/icons/XMark.svelte';
 
 	export let onSubmit: Function = () => {};
 	export let onDelete: Function = () => {};
@@ -31,12 +29,13 @@
 
 	let url = '';
 	let key = '';
-	let auth_type = 'bearer';
 
 	let connectionType = 'external';
 	let azure = false;
 	$: azure =
-		(url.includes('azure.') || url.includes('cognitive.microsoft.com')) && !direct ? true : false;
+		(url.includes('azure.com') || url.includes('cognitive.microsoft.com')) && !direct
+			? true
+			: false;
 
 	let prefixId = '';
 	let enable = true;
@@ -75,7 +74,6 @@
 				url,
 				key,
 				config: {
-					auth_type,
 					azure: azure,
 					api_version: apiVersion
 				}
@@ -110,7 +108,7 @@
 
 		if (!ollama && !url) {
 			loading = false;
-			toast.error($i18n.t('URL is required'));
+			toast.error('URL is required');
 			return;
 		}
 
@@ -118,20 +116,20 @@
 			if (!apiVersion) {
 				loading = false;
 
-				toast.error($i18n.t('API Version is required'));
+				toast.error('API Version is required');
 				return;
 			}
 
 			if (!key) {
 				loading = false;
 
-				toast.error($i18n.t('Key is required'));
+				toast.error('Key is required');
 				return;
 			}
 
 			if (modelIds.length === 0) {
 				loading = false;
-				toast.error($i18n.t('Deployment names are required for Azure OpenAI'));
+				toast.error('Deployment names are required');
 				return;
 			}
 		}
@@ -148,7 +146,6 @@
 				prefix_id: prefixId,
 				model_ids: modelIds,
 				connection_type: connectionType,
-				auth_type,
 				...(!ollama && azure ? { azure: true, api_version: apiVersion } : {})
 			}
 		};
@@ -160,7 +157,6 @@
 
 		url = '';
 		key = '';
-		auth_type = 'bearer';
 		prefixId = '';
 		tags = [];
 		modelIds = [];
@@ -170,8 +166,6 @@
 		if (connection) {
 			url = connection.url;
 			key = connection.key;
-
-			auth_type = connection.config.auth_type ?? 'bearer';
 
 			enable = connection.config?.enable ?? true;
 			tags = connection.config?.tags ?? [];
@@ -214,7 +208,17 @@
 					show = false;
 				}}
 			>
-				<XMark className={'size-5'} />
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 20 20"
+					fill="currentColor"
+					aria-hidden="true"
+					class="w-5 h-5"
+				>
+					<path
+						d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
+					/>
+				</svg>
 			</button>
 		</div>
 
@@ -311,63 +315,23 @@
 
 						<div class="flex gap-2 mt-2">
 							<div class="flex flex-col w-full">
-								<label
-									for="select-bearer-or-session"
-									class={`text-xs ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}
-									>{$i18n.t('Auth')}</label
+								<div
+									class={`mb-0.5 text-xs text-gray-500
+								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
 								>
+									{$i18n.t('Key')}
+								</div>
 
-								<div class="flex gap-2">
-									<div class="flex-shrink-0 self-start">
-										<select
-											id="select-bearer-or-session"
-											class={`w-full text-sm bg-transparent pr-5 ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
-											bind:value={auth_type}
-										>
-											<option value="none">{$i18n.t('None')}</option>
-											<option value="bearer">{$i18n.t('Bearer')}</option>
-
-											{#if !ollama}
-												<option value="session">{$i18n.t('Session')}</option>
-												{#if !direct}
-													<option value="system_oauth">{$i18n.t('OAuth')}</option>
-												{/if}
-											{/if}
-										</select>
-									</div>
-
-									<div class="flex flex-1 items-center">
-										{#if auth_type === 'bearer'}
-											<SensitiveInput
-												bind:value={key}
-												placeholder={$i18n.t('API Key')}
-												required={false}
-											/>
-										{:else if auth_type === 'none'}
-											<div
-												class={`text-xs self-center translate-y-[1px] ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}
-											>
-												{$i18n.t('No authentication')}
-											</div>
-										{:else if auth_type === 'session'}
-											<div
-												class={`text-xs self-center translate-y-[1px] ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}
-											>
-												{$i18n.t('Forwards system user session credentials to authenticate')}
-											</div>
-										{:else if auth_type === 'system_oauth'}
-											<div
-												class={`text-xs self-center translate-y-[1px] ${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500'}`}
-											>
-												{$i18n.t('Forwards system user OAuth access token to authenticate')}
-											</div>
-										{/if}
-									</div>
+								<div class="flex-1">
+									<SensitiveInput
+										inputClassName={`w-full text-sm bg-transparent ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
+										bind:value={key}
+										placeholder={$i18n.t('API Key')}
+										required={false}
+									/>
 								</div>
 							</div>
-						</div>
 
-						<div class="flex gap-2 mt-2">
 							<div class="flex flex-col w-full">
 								<label
 									for="prefix-id-input"
@@ -395,29 +359,6 @@
 							</div>
 						</div>
 
-						{#if !ollama && !direct}
-							<div class="flex flex-row justify-between items-center w-full mt-2">
-								<label
-									for="prefix-id-input"
-									class={`mb-0.5 text-xs text-gray-500
-								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
-									>{$i18n.t('Provider Type')}</label
-								>
-
-								<div>
-									<button
-										on:click={() => {
-											azure = !azure;
-										}}
-										type="button"
-										class=" text-xs text-gray-700 dark:text-gray-300"
-									>
-										{azure ? $i18n.t('Azure OpenAI') : $i18n.t('OpenAI')}
-									</button>
-								</div>
-							</div>
-						{/if}
-
 						{#if azure}
 							<div class="flex gap-2 mt-2">
 								<div class="flex flex-col w-full">
@@ -442,6 +383,36 @@
 								</div>
 							</div>
 						{/if}
+
+						<div class="flex gap-2 mt-2">
+							<div class="flex flex-col w-full">
+								<div
+									class={`mb-0.5 text-xs text-gray-500
+								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
+								>
+									{$i18n.t('Tags')}
+								</div>
+
+								<div class="flex-1">
+									<Tags
+										bind:tags
+										on:add={(e) => {
+											tags = [
+												...tags,
+												{
+													name: e.detail
+												}
+											];
+										}}
+										on:delete={(e) => {
+											tags = tags.filter((tag) => tag.name !== e.detail);
+										}}
+									/>
+								</div>
+							</div>
+						</div>
+
+						<hr class=" border-gray-100 dark:border-gray-700/10 my-2.5 w-full" />
 
 						<div class="flex flex-col w-full">
 							<div class="mb-1 flex justify-between">
@@ -528,36 +499,6 @@
 						</div>
 					</div>
 
-					<hr class=" border-gray-50 dark:border-gray-850 my-2.5 w-full" />
-
-					<div class="flex gap-2">
-						<div class="flex flex-col w-full">
-							<div
-								class={`mb-0.5 text-xs text-gray-500
-								${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
-							>
-								{$i18n.t('Tags')}
-							</div>
-
-							<div class="flex-1 mt-0.5">
-								<Tags
-									bind:tags
-									on:add={(e) => {
-										tags = [
-											...tags,
-											{
-												name: e.detail
-											}
-										];
-									}}
-									on:delete={(e) => {
-										tags = tags.filter((tag) => tag.name !== e.detail);
-									}}
-								/>
-							</div>
-						</div>
-					</div>
-
 					<div class="flex justify-end pt-3 text-sm font-medium gap-1.5">
 						{#if edit}
 							<button
@@ -583,7 +524,29 @@
 
 							{#if loading}
 								<div class="ml-2 self-center">
-									<Spinner />
+									<svg
+										class=" w-4 h-4"
+										viewBox="0 0 24 24"
+										fill="currentColor"
+										xmlns="http://www.w3.org/2000/svg"
+										><style>
+											.spinner_ajPY {
+												transform-origin: center;
+												animation: spinner_AtaB 0.75s infinite linear;
+											}
+											@keyframes spinner_AtaB {
+												100% {
+													transform: rotate(360deg);
+												}
+											}
+										</style><path
+											d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z"
+											opacity=".25"
+										/><path
+											d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z"
+											class="spinner_ajPY"
+										/></svg
+									>
 								</div>
 							{/if}
 						</button>

@@ -204,10 +204,7 @@
 	});
 </script>
 
-<div
-	class=" w-full h-full relative flex flex-col bg-gray-50 dark:bg-gray-850"
-	id="artifacts-container"
->
+<div class=" w-full h-full relative flex flex-col bg-gray-50 dark:bg-gray-850">
 	<div class="w-full h-full flex flex-col flex-1 relative">
 		{#if contents.length > 0}
 			<div

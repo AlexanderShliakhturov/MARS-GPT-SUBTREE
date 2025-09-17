@@ -32,12 +32,7 @@
 	typeahead={false}
 >
 	<DropdownMenu.Trigger>
-		<Tooltip
-			content={$i18n.t('More')}
-			className={($settings?.highContrastMode ?? false)
-				? ''
-				: 'group-hover/item:opacity-100 opacity-0'}
-		>
+		<Tooltip content={$i18n.t('More')} className=" group-hover/item:opacity-100  opacity-0">
 			<slot />
 		</Tooltip>
 	</DropdownMenu.Trigger>
@@ -50,9 +45,8 @@
 		align="end"
 		transition={flyAndScale}
 	>
-		<DropdownMenu.Item
+		<button
 			type="button"
-			aria-pressed={($settings?.pinnedModels ?? []).includes(model?.id)}
 			class="flex rounded-md py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition items-center gap-2"
 			on:click={(e) => {
 				e.stopPropagation();
@@ -75,9 +69,9 @@
 					{$i18n.t('Keep in Sidebar')}
 				{/if}
 			</div>
-		</DropdownMenu.Item>
+		</button>
 
-		<DropdownMenu.Item
+		<button
 			type="button"
 			class="flex rounded-md py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition items-center gap-2"
 			on:click={(e) => {
@@ -91,6 +85,6 @@
 			<Link />
 
 			<div class="flex items-center">{$i18n.t('Copy Link')}</div>
-		</DropdownMenu.Item>
+		</button>
 	</DropdownMenu.Content>
 </DropdownMenu.Root>

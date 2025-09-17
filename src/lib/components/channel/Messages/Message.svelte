@@ -28,12 +28,11 @@
 	import Image from '$lib/components/common/Image.svelte';
 	import FileItem from '$lib/components/common/FileItem.svelte';
 	import ProfilePreview from './Message/ProfilePreview.svelte';
-	import ChatBubbleOvalEllipsis from '$lib/components/icons/ChatBubble.svelte';
+	import ChatBubbleOvalEllipsis from '$lib/components/icons/ChatBubbleOvalEllipsis.svelte';
 	import FaceSmile from '$lib/components/icons/FaceSmile.svelte';
-	import EmojiPicker from '$lib/components/common/EmojiPicker.svelte';
+	import ReactionPicker from './Message/ReactionPicker.svelte';
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import { formatDate } from '$lib/utils';
-	import Emoji from '$lib/components/common/Emoji.svelte';
 
 	export let message;
 	export let showUserProfile = true;
@@ -75,7 +74,7 @@
 				<div
 					class="flex gap-1 rounded-lg bg-white dark:bg-gray-850 shadow-md p-0.5 border border-gray-100 dark:border-gray-850"
 				>
-					<EmojiPicker
+					<ReactionPicker
 						onClose={() => (showButtons = false)}
 						onSubmit={(name) => {
 							showButtons = false;
@@ -92,7 +91,7 @@
 								<FaceSmile />
 							</button>
 						</Tooltip>
-					</EmojiPicker>
+					</ReactionPicker>
 
 					{#if !thread}
 						<Tooltip content={$i18n.t('Reply in Thread')}>
@@ -145,9 +144,7 @@
 					<ProfilePreview user={message.user}>
 						<ProfileImage
 							src={message.user?.profile_image_url ??
-								($i18n.language === 'dg-DG'
-									? `${WEBUI_BASE_URL}/doge.png`
-									: `${WEBUI_BASE_URL}/static/favicon.png`)}
+								($i18n.language === 'dg-DG' ? `/doge.png` : `${WEBUI_BASE_URL}/static/favicon.png`)}
 							className={'size-8 translate-y-1 ml-0.5'}
 						/>
 					</ProfilePreview>
@@ -276,7 +273,20 @@
 												onReaction(reaction.name);
 											}}
 										>
-											<Emoji shortCode={reaction.name} />
+											{#if $shortCodesToEmojis[reaction.name]}
+												<img
+													src="/assets/emojis/{$shortCodesToEmojis[
+														reaction.name
+													].toLowerCase()}.svg"
+													alt={reaction.name}
+													class=" size-4"
+													loading="lazy"
+												/>
+											{:else}
+												<div>
+													{reaction.name}
+												</div>
+											{/if}
 
 											{#if reaction.user_ids.length > 0}
 												<div class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -287,7 +297,7 @@
 									</Tooltip>
 								{/each}
 
-								<EmojiPicker
+								<ReactionPicker
 									onSubmit={(name) => {
 										onReaction(name);
 									}}
@@ -299,7 +309,7 @@
 											<FaceSmile />
 										</div>
 									</Tooltip>
-								</EmojiPicker>
+								</ReactionPicker>
 							</div>
 						</div>
 					{/if}

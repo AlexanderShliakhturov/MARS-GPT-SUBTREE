@@ -198,7 +198,14 @@ async def generate_title(
     else:
         template = DEFAULT_TITLE_GENERATION_PROMPT_TEMPLATE
 
-    content = title_generation_template(template, form_data["messages"], user)
+    content = title_generation_template(
+        template,
+        form_data["messages"],
+        {
+            "name": user.name,
+            "location": user.info.get("location") if user.info else None,
+        },
+    )
 
     max_tokens = (
         models[task_model_id].get("info", {}).get("params", {}).get("max_tokens", 1000)
@@ -282,7 +289,14 @@ async def generate_follow_ups(
     else:
         template = DEFAULT_FOLLOW_UP_GENERATION_PROMPT_TEMPLATE
 
-    content = follow_up_generation_template(template, form_data["messages"], user)
+    content = follow_up_generation_template(
+        template,
+        form_data["messages"],
+        {
+            "name": user.name,
+            "location": user.info.get("location") if user.info else None,
+        },
+    )
 
     payload = {
         "model": task_model_id,
@@ -355,7 +369,9 @@ async def generate_chat_tags(
     else:
         template = DEFAULT_TAGS_GENERATION_PROMPT_TEMPLATE
 
-    content = tags_generation_template(template, form_data["messages"], user)
+    content = tags_generation_template(
+        template, form_data["messages"], {"name": user.name}
+    )
 
     payload = {
         "model": task_model_id,
@@ -421,7 +437,13 @@ async def generate_image_prompt(
     else:
         template = DEFAULT_IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE
 
-    content = image_prompt_generation_template(template, form_data["messages"], user)
+    content = image_prompt_generation_template(
+        template,
+        form_data["messages"],
+        user={
+            "name": user.name,
+        },
+    )
 
     payload = {
         "model": task_model_id,
@@ -470,10 +492,6 @@ async def generate_queries(
                 detail=f"Query generation is disabled",
             )
 
-    if getattr(request.state, "cached_queries", None):
-        log.info(f"Reusing cached queries: {request.state.cached_queries}")
-        return request.state.cached_queries
-
     if getattr(request.state, "direct", False) and hasattr(request.state, "model"):
         models = {
             request.state.model["id"]: request.state.model,
@@ -506,7 +524,9 @@ async def generate_queries(
     else:
         template = DEFAULT_QUERY_GENERATION_PROMPT_TEMPLATE
 
-    content = query_generation_template(template, form_data["messages"], user)
+    content = query_generation_template(
+        template, form_data["messages"], {"name": user.name}
+    )
 
     payload = {
         "model": task_model_id,
@@ -591,7 +611,9 @@ async def generate_autocompletion(
     else:
         template = DEFAULT_AUTOCOMPLETE_GENERATION_PROMPT_TEMPLATE
 
-    content = autocomplete_generation_template(template, prompt, messages, type, user)
+    content = autocomplete_generation_template(
+        template, prompt, messages, type, {"name": user.name}
+    )
 
     payload = {
         "model": task_model_id,
@@ -653,7 +675,14 @@ async def generate_emoji(
 
     template = DEFAULT_EMOJI_GENERATION_PROMPT_TEMPLATE
 
-    content = emoji_generation_template(template, form_data["prompt"], user)
+    content = emoji_generation_template(
+        template,
+        form_data["prompt"],
+        {
+            "name": user.name,
+            "location": user.info.get("location") if user.info else None,
+        },
+    )
 
     payload = {
         "model": task_model_id,
@@ -666,11 +695,11 @@ async def generate_emoji(
                 "max_completion_tokens": 4,
             }
         ),
+        "chat_id": form_data.get("chat_id", None),
         "metadata": {
             **(request.state.metadata if hasattr(request.state, "metadata") else {}),
             "task": str(TASKS.EMOJI_GENERATION),
             "task_body": form_data,
-            "chat_id": form_data.get("chat_id", None),
         },
     }
 

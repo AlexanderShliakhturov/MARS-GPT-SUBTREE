@@ -854,7 +854,6 @@
 				</button>
 			{:else}
 				<div class="relative flex video-container w-full max-h-full pt-2 pb-4 md:py-6 px-2 h-full">
-					<!-- svelte-ignore a11y-media-has-caption -->
 					<video
 						id="camera-feed"
 						autoplay

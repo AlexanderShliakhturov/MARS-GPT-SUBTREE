@@ -6,9 +6,6 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from pydantic import BaseModel
 
-from open_webui.socket.main import sio
-
-
 from open_webui.models.users import Users, UserResponse
 from open_webui.models.notes import Notes, NoteModel, NoteForm, NoteUserResponse
 
@@ -54,14 +51,7 @@ async def get_notes(request: Request, user=Depends(get_verified_user)):
     return notes
 
 
-class NoteTitleIdResponse(BaseModel):
-    id: str
-    title: str
-    updated_at: int
-    created_at: int
-
-
-@router.get("/list", response_model=list[NoteTitleIdResponse])
+@router.get("/list", response_model=list[NoteUserResponse])
 async def get_note_list(request: Request, user=Depends(get_verified_user)):
 
     if user.role != "admin" and not has_permission(
@@ -73,8 +63,13 @@ async def get_note_list(request: Request, user=Depends(get_verified_user)):
         )
 
     notes = [
-        NoteTitleIdResponse(**note.model_dump())
-        for note in Notes.get_notes_by_user_id(user.id, "write")
+        NoteUserResponse(
+            **{
+                **note.model_dump(),
+                "user": UserResponse(**Users.get_user_by_id(note.user_id).model_dump()),
+            }
+        )
+        for note in Notes.get_notes_by_user_id(user.id, "read")
     ]
 
     return notes
@@ -173,12 +168,6 @@ async def update_note_by_id(
 
     try:
         note = Notes.update_note_by_id(id, form_data)
-        await sio.emit(
-            "note-events",
-            note.model_dump(),
-            to=f"note:{note.id}",
-        )
-
         return note
     except Exception as e:
         log.exception(e)

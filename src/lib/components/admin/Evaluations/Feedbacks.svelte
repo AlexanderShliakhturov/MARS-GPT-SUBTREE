@@ -23,8 +23,6 @@
 
 	import ChevronUp from '$lib/components/icons/ChevronUp.svelte';
 	import ChevronDown from '$lib/components/icons/ChevronDown.svelte';
-	import { WEBUI_BASE_URL } from '$lib/constants';
-	import { config } from '$lib/stores';
 
 	export let feedbacks = [];
 
@@ -307,7 +305,7 @@
 			<tbody class="">
 				{#each paginatedFeedbacks as feedback (feedback.id)}
 					<tr
-						class="bg-white dark:bg-gray-900 dark:border-gray-850 text-xs cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-850/50 transition"
+						class="bg-white dark:bg-gray-900 dark:border-gray-850 text-xs cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition"
 						on:click={() => openFeedbackModal(feedback)}
 					>
 						<td class=" py-0.5 text-right font-semibold">
@@ -315,7 +313,7 @@
 								<Tooltip content={feedback?.user?.name}>
 									<div class="shrink-0">
 										<img
-											src={feedback?.user?.profile_image_url ?? `${WEBUI_BASE_URL}/user.png`}
+											src={feedback?.user?.profile_image_url ?? '/user.png'}
 											alt={feedback?.user?.name}
 											class="size-5 rounded-full object-cover shrink-0"
 										/>
@@ -355,26 +353,23 @@
 								</div>
 							</div>
 						</td>
-
-						{#if feedback?.data?.rating}
-							<td class="px-3 py-1 text-right font-medium text-gray-900 dark:text-white w-max">
-								<div class=" flex justify-end">
-									{#if feedback?.data?.rating.toString() === '1'}
-										<Badge type="info" content={$i18n.t('Won')} />
-									{:else if feedback?.data?.rating.toString() === '0'}
-										<Badge type="muted" content={$i18n.t('Draw')} />
-									{:else if feedback?.data?.rating.toString() === '-1'}
-										<Badge type="error" content={$i18n.t('Lost')} />
-									{/if}
-								</div>
-							</td>
-						{/if}
+						<td class="px-3 py-1 text-right font-medium text-gray-900 dark:text-white w-max">
+							<div class=" flex justify-end">
+								{#if feedback.data.rating.toString() === '1'}
+									<Badge type="info" content={$i18n.t('Won')} />
+								{:else if feedback.data.rating.toString() === '0'}
+									<Badge type="muted" content={$i18n.t('Draw')} />
+								{:else if feedback.data.rating.toString() === '-1'}
+									<Badge type="error" content={$i18n.t('Lost')} />
+								{/if}
+							</div>
+						</td>
 
 						<td class=" px-3 py-1 text-right font-medium">
 							{dayjs(feedback.updated_at * 1000).fromNow()}
 						</td>
 
-						<td class=" px-3 py-1 text-right font-semibold" on:click={(e) => e.stopPropagation()}>
+						<td class=" px-3 py-1 text-right font-semibold">
 							<FeedbackMenu
 								on:delete={(e) => {
 									deleteFeedbackHandler(feedback.id);
@@ -394,7 +389,7 @@
 	{/if}
 </div>
 
-{#if feedbacks.length > 0 && $config?.features?.enable_community_sharing}
+{#if feedbacks.length > 0}
 	<div class=" flex flex-col justify-end w-full text-right gap-1">
 		<div class="line-clamp-1 text-gray-500 text-xs">
 			{$i18n.t('Help us create the best community leaderboard by sharing your feedback history!')}

@@ -1,23 +1,12 @@
 import logging
 from typing import Optional
-import base64
-import io
-
-
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import Response, StreamingResponse, FileResponse
-from pydantic import BaseModel
-
 
 from open_webui.models.auths import Auths
-from open_webui.models.oauth_sessions import OAuthSessions
-
 from open_webui.models.groups import Groups
 from open_webui.models.chats import Chats
 from open_webui.models.users import (
     UserModel,
     UserListResponse,
-    UserInfoListResponse,
     UserRoleUpdateForm,
     Users,
     UserSettings,
@@ -31,8 +20,9 @@ from open_webui.socket.main import (
     get_user_active_status,
 )
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.env import SRC_LOG_LEVELS, STATIC_DIR
-
+from open_webui.env import SRC_LOG_LEVELS
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 
 from open_webui.utils.auth import get_admin_user, get_password_hash, get_verified_user
 from open_webui.utils.access_control import get_permissions, has_permission
@@ -93,7 +83,7 @@ async def get_users(
     return Users.get_users(filter=filter, skip=skip, limit=limit)
 
 
-@router.get("/all", response_model=UserInfoListResponse)
+@router.get("/all", response_model=UserListResponse)
 async def get_all_users(
     user=Depends(get_admin_user),
 ):
@@ -143,15 +133,9 @@ class SharingPermissions(BaseModel):
 
 class ChatPermissions(BaseModel):
     controls: bool = True
-    valves: bool = True
     system_prompt: bool = True
-    params: bool = True
     file_upload: bool = True
     delete: bool = True
-    delete_message: bool = True
-    continue_response: bool = True
-    regenerate_response: bool = True
-    rate_response: bool = True
     edit: bool = True
     share: bool = True
     export: bool = True
@@ -342,55 +326,6 @@ async def get_user_by_id(user_id: str, user=Depends(get_verified_user)):
         )
 
 
-@router.get("/{user_id}/oauth/sessions", response_model=Optional[dict])
-async def get_user_oauth_sessions_by_id(user_id: str, user=Depends(get_admin_user)):
-    sessions = OAuthSessions.get_sessions_by_user_id(user_id)
-    if sessions and len(sessions) > 0:
-        return sessions
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.USER_NOT_FOUND,
-        )
-
-
-############################
-# GetUserProfileImageById
-############################
-
-
-@router.get("/{user_id}/profile/image")
-async def get_user_profile_image_by_id(user_id: str, user=Depends(get_verified_user)):
-    user = Users.get_user_by_id(user_id)
-    if user:
-        if user.profile_image_url:
-            # check if it's url or base64
-            if user.profile_image_url.startswith("http"):
-                return Response(
-                    status_code=status.HTTP_302_FOUND,
-                    headers={"Location": user.profile_image_url},
-                )
-            elif user.profile_image_url.startswith("data:image"):
-                try:
-                    header, base64_data = user.profile_image_url.split(",", 1)
-                    image_data = base64.b64decode(base64_data)
-                    image_buffer = io.BytesIO(image_data)
-
-                    return StreamingResponse(
-                        image_buffer,
-                        media_type="image/png",
-                        headers={"Content-Disposition": "inline; filename=image.png"},
-                    )
-                except Exception as e:
-                    pass
-        return FileResponse(f"{STATIC_DIR}/user.png")
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.USER_NOT_FOUND,
-        )
-
-
 ############################
 # GetUserActiveStatusById
 ############################
@@ -519,13 +454,3 @@ async def delete_user_by_id(user_id: str, user=Depends(get_admin_user)):
         status_code=status.HTTP_403_FORBIDDEN,
         detail=ERROR_MESSAGES.ACTION_PROHIBITED,
     )
-
-
-############################
-# GetUserGroupsById
-############################
-
-
-@router.get("/{user_id}/groups")
-async def get_user_groups_by_id(user_id: str, user=Depends(get_admin_user)):
-    return Groups.get_groups_by_member_id(user_id)
